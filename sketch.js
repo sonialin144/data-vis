@@ -105,6 +105,9 @@ let seqHeroScaleT = 0;
 let morphOpenStartMs = null;
 /** `millis()` when done phase started; hero animal growth + glow rays (see DONE_*). */
 let doneRevealStartMs = null;
+/** `millis()` when post-reveal phase started; hero slides + text reveals. */
+let postRevealStartMs = null;
+let postRevealAnimalName = "Biscuit";
 
 /** Capsule dome open during morph (matches CSS animation duration). */
 const OPEN_DUR = 1100;
@@ -125,9 +128,30 @@ const DONE_ANIMAL_GROW_MS = 1000;
 const DONE_ANIMAL_REVEAL_SCALE = 1.50;
 const HERO_OPEN_JUMP_AMP = -44;
 
+const POST_REVEAL_DUR_MS = 1100;
+const POST_REVEAL_HERO_SHIFT_X = 620;
+const POST_REVEAL_TEXT_AREA_W = 1220;
+const POST_REVEAL_TEXT_PAD_X = 80;
+const POST_REVEAL_TEXT_SHIFT_X = 48;
+
+const POST_REVEAL_SUBLINE =
+  "You were the first one to give him a chance.";
+const POST_REVEAL_FOOTER =
+  "13 capsules were taken today, meaning 13 animals one step closer to home";
+
+const ANIMAL_NAMES = [
+  "Biscuit",
+  "Mochi",
+  "Pepper",
+  "Sunny",
+  "Waffles",
+  "Maple",
+  "Clover",
+];
+
 /** Current hero dome rotation (deg) for draw; 0 when closed, MORPH_DOME_OPEN_MAX_DEG when fully open. */
 function heroMorphDomeOpenDeg() {
-  if (seqPhase === "done") return MORPH_DOME_OPEN_MAX_DEG;
+  if (seqPhase === "done" || seqPhase === "postReveal") return MORPH_DOME_OPEN_MAX_DEG;
   if (seqPhase !== "morph" || morphOpenStartMs === null) return 0;
   const t = min((millis() - morphOpenStartMs) / OPEN_DUR, 1);
   const e = easeInOutCubic(t);
@@ -139,6 +163,11 @@ function heroMorphJumpOffsetY() {
   if (seqPhase !== "morph" || morphOpenStartMs === null) return 0;
   const t = min((millis() - morphOpenStartMs) / OPEN_DUR, 1);
   return HERO_OPEN_JUMP_AMP * sin(PI * t);
+}
+
+function postRevealT() {
+  if (seqPhase !== "postReveal" || postRevealStartMs == null) return 0;
+  return min((millis() - postRevealStartMs) / POST_REVEAL_DUR_MS, 1);
 }
 
 const SEQ_MIN_SCATTER_FRAMES = 18;
@@ -351,6 +380,7 @@ function advanceSequencePhase() {
     seqSnapshot = snapshotCapsules();
     morphOpenStartMs = null;
     doneRevealStartMs = null;
+    postRevealStartMs = null;
     seqHeroScaleT = 0;
     seqHeroLayer = NUM_SCENE_LAYERS - 1;
     for (let L = NUM_SCENE_LAYERS - 1; L >= 0; L--) {
@@ -366,12 +396,13 @@ function advanceSequencePhase() {
     seqPhaseStartFrame = frameCount;
     return;
   }
-  if (seqPhase === "done") {
+  if (seqPhase === "postReveal") {
     if (seqSnapshot) restoreCapsules(seqSnapshot);
     seqPhase = "play";
     seqHeroScaleT = 0;
     morphOpenStartMs = null;
     doneRevealStartMs = null;
+    postRevealStartMs = null;
     seqSnapshot = null;
   }
 }
@@ -394,9 +425,13 @@ function skipSequencePhase() {
   }
   if (seqPhase === "morph") {
     morphOpenStartMs = null;
-    seqPhase = "done";
+    seqPhase = "postReveal";
     seqPhaseStartFrame = frameCount;
     doneRevealStartMs = millis();
+    postRevealStartMs = millis();
+    const h = capsuleLayers[seqHeroLayer][seqHeroIndex];
+    postRevealAnimalName =
+      ANIMAL_NAMES[h.animalIndex % ANIMAL_NAMES.length] || "Biscuit";
   }
 }
 
@@ -453,16 +488,21 @@ function updateSequenceAnimation() {
     const morphNormT = min((millis() - morphOpenStartMs) / OPEN_DUR, 1);
     if (morphNormT >= 1) {
       morphOpenStartMs = null;
-      seqPhase = "done";
+      seqPhase = "postReveal";
       seqPhaseStartFrame = frameCount;
       doneRevealStartMs = millis();
+      postRevealStartMs = millis();
+      postRevealAnimalName =
+        ANIMAL_NAMES[h.animalIndex % ANIMAL_NAMES.length] || "Biscuit";
     }
-  } else if (seqPhase === "done") {
+  } else if (seqPhase === "postReveal") {
     const h = capsuleLayers[seqHeroLayer][seqHeroIndex];
     const c = heroBufferCenterTarget();
     const k = 0.08;
     const ka = 0.08;
-    h.x = lerp(h.x, c.x, k);
+    const e = easeInOutCubic(postRevealT());
+    const targetX = c.x - POST_REVEAL_HERO_SHIFT_X;
+    h.x = lerp(h.x, targetX, k * (0.65 + 0.35 * e));
     h.y = lerp(h.y, c.y, k);
     h.angle = lerpAngleToward(h.angle, 0, ka);
     seqHeroScaleT = lerp(seqHeroScaleT, 1, 0.07);
@@ -498,7 +538,7 @@ function setup() {
   const btn = document.getElementById("seq-next-btn");
   if (btn) {
     btn.addEventListener("click", () => {
-      if (seqPhase === "play" || seqPhase === "done") {
+      if (seqPhase === "play" || seqPhase === "postReveal") {
         advanceSequencePhase();
       } else {
         skipSequencePhase();
@@ -529,7 +569,7 @@ function drawCapsuleSceneTo(pg, layerIndex) {
       layerIndex === seqHeroLayer &&
       i === seqHeroIndex;
     const domeOpenDeg =
-      isHero && (seqPhase === "morph" || seqPhase === "done")
+      isHero && (seqPhase === "morph" || seqPhase === "done" || seqPhase === "postReveal")
         ? heroMorphDomeOpenDeg()
         : 0;
 
@@ -539,7 +579,7 @@ function drawCapsuleSceneTo(pg, layerIndex) {
         : 1;
     const displayW = CAPSULE_DISPLAY_WIDTH * heroScale;
 
-    const isDoneHero = isHero && seqPhase === "done";
+    const isDoneHero = isHero && (seqPhase === "done" || seqPhase === "postReveal");
     let animalScaleMul = 1;
     let glowElapsedMs = null;
     if (isDoneHero && doneRevealStartMs != null) {
@@ -800,6 +840,47 @@ function drawCenterTextBox() {
   pop();
 }
 
+function drawPostRevealPanel() {
+  if (seqPhase !== "postReveal" || postRevealStartMs == null) return;
+  const t = postRevealT();
+  const e = easeOutCubic(t);
+  const a = 255 * e;
+
+  const cx = CANVAS_WIDTH * 0.5;
+  const cy = CANVAS_HEIGHT * 0.5;
+  const left = cx - 10 + (1 - e) * POST_REVEAL_TEXT_SHIFT_X;
+  const top = cy - 210;
+
+  push();
+  const ctx = drawingContext;
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+  ctx.shadowBlur = 28;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 8;
+
+  textFont(CENTER_BOX_FONT_FAMILY);
+  textAlign(LEFT, TOP);
+
+  noStroke();
+  fill(255, a);
+  textStyle(BOLD);
+  textSize(92);
+  text(`Meet ${postRevealAnimalName}`, left + POST_REVEAL_TEXT_PAD_X, top, POST_REVEAL_TEXT_AREA_W);
+
+  textStyle(NORMAL);
+  textSize(40);
+  fill(255, a * 0.92);
+  text(POST_REVEAL_SUBLINE, left + POST_REVEAL_TEXT_PAD_X, top + 118, POST_REVEAL_TEXT_AREA_W);
+
+  textSize(32);
+  fill(255, a * 0.82);
+  text(POST_REVEAL_FOOTER, left + POST_REVEAL_TEXT_PAD_X, top + 190, POST_REVEAL_TEXT_AREA_W);
+
+  ctx.restore();
+  pop();
+}
+
 function draw() {
   background(0);
   updateSequenceAnimation();
@@ -825,6 +906,9 @@ function draw() {
 
   if (seqPhase === "play") {
     drawCenterTextBox();
+  }
+  if (seqPhase === "postReveal") {
+    drawPostRevealPanel();
   }
 
   fill(235);
@@ -853,7 +937,7 @@ function keyPressed() {
   } else if (k === "d") {
     debugCollision = !debugCollision;
   } else if (k === "n") {
-    if (seqPhase === "play" || seqPhase === "done") {
+    if (seqPhase === "play" || seqPhase === "postReveal") {
       advanceSequencePhase();
     } else {
       skipSequencePhase();
