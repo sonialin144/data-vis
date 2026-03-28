@@ -109,6 +109,74 @@ let doneRevealStartMs = null;
 let postRevealStartMs = null;
 let postRevealAnimalName = "Biscuit";
 
+/** @type {BroadcastChannel | null} */
+let gachaBroadcastChannel = null;
+let lastBroadcastPhase = null;
+/** @type {string | null} */
+let lastBroadcastAnimalName = null;
+/** @type {number | null} */
+let lastBroadcastAnimalIndex = null;
+/** @type {string | null} */
+let lastBroadcastShellColor = null;
+
+function gachaChannelName() {
+  return (
+    (typeof window !== "undefined" && window.GACHA_BROADCAST_CHANNEL_NAME) ||
+    "data-vis-gacha"
+  );
+}
+
+function postGachaStateNow() {
+  if (!gachaBroadcastChannel) return;
+  const name = seqPhase === "postReveal" ? postRevealAnimalName : null;
+  const animalIdx =
+    seqPhase === "postReveal"
+      ? capsuleLayers[seqHeroLayer][seqHeroIndex].animalIndex
+      : null;
+  const shellCol =
+    seqPhase === "postReveal"
+      ? capsuleLayers[seqHeroLayer][seqHeroIndex].shellColor
+      : null;
+  lastBroadcastPhase = seqPhase;
+  lastBroadcastAnimalName = name;
+  lastBroadcastAnimalIndex = animalIdx;
+  lastBroadcastShellColor = shellCol != null ? String(shellCol) : null;
+  gachaBroadcastChannel.postMessage({
+    type: "STATE",
+    phase: seqPhase,
+    ...(seqPhase === "postReveal"
+      ? {
+          animalName: postRevealAnimalName,
+          animalIndex: animalIdx,
+          shellColor: shellCol,
+        }
+      : {}),
+  });
+}
+
+function broadcastGachaStateIfChanged() {
+  if (!gachaBroadcastChannel) return;
+  const name = seqPhase === "postReveal" ? postRevealAnimalName : null;
+  const animalIdx =
+    seqPhase === "postReveal"
+      ? capsuleLayers[seqHeroLayer][seqHeroIndex].animalIndex
+      : null;
+  const shellCol =
+    seqPhase === "postReveal"
+      ? capsuleLayers[seqHeroLayer][seqHeroIndex].shellColor
+      : null;
+  const shellKey = shellCol != null ? String(shellCol) : null;
+  if (
+    seqPhase !== lastBroadcastPhase ||
+    (seqPhase === "postReveal" &&
+      (name !== lastBroadcastAnimalName ||
+        animalIdx !== lastBroadcastAnimalIndex ||
+        shellKey !== lastBroadcastShellColor))
+  ) {
+    postGachaStateNow();
+  }
+}
+
 /** Capsule dome open during morph (matches CSS animation duration). */
 const OPEN_DUR = 1100;
 /** Final dome angle (deg), same as reference `lerp(0, -135, 1)`. */
@@ -134,9 +202,13 @@ const POST_REVEAL_TEXT_AREA_W = 1220;
 const POST_REVEAL_TEXT_PAD_X = 80;
 const POST_REVEAL_TEXT_SHIFT_X = 48;
 
+const _gachaCopy =
+  typeof window !== "undefined" && window.GACHA_COPY ? window.GACHA_COPY : null;
 const POST_REVEAL_SUBLINE =
+  (_gachaCopy && _gachaCopy.subline) ||
   "You were the first one to give him a chance.";
 const POST_REVEAL_FOOTER =
+  (_gachaCopy && _gachaCopy.footer) ||
   "13 capsules were taken today, meaning 13 animals one step closer to home";
 
 const ANIMAL_NAMES = [
@@ -545,6 +617,24 @@ function setup() {
       }
     });
   }
+  if (typeof BroadcastChannel !== "undefined") {
+    gachaBroadcastChannel = new BroadcastChannel(gachaChannelName());
+    gachaBroadcastChannel.onmessage = (ev) => {
+      const d = ev.data;
+      if (!d || typeof d !== "object") return;
+      if (d.type === "START_GACHA" && seqPhase === "play") {
+        advanceSequencePhase();
+      } else if (
+        d.type === "RESET_AFTER_REVEAL" &&
+        seqPhase === "postReveal"
+      ) {
+        advanceSequencePhase();
+      } else if (d.type === "REQUEST_STATE") {
+        postGachaStateNow();
+      }
+    };
+    postGachaStateNow();
+  }
 }
 
 /**
@@ -928,6 +1018,8 @@ function draw() {
       updateAnimalHops(layer);
     }
   }
+
+  broadcastGachaStateIfChanged();
 }
 
 function keyPressed() {
