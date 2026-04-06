@@ -649,6 +649,35 @@ function advanceSequencePhase() {
   }
 }
 
+/**
+ * External entrypoint for camera gesture triggers.
+ * Returns true only when a new pull starts from idle.
+ */
+function triggerGachaFromGesture() {
+  if (seqPhase !== "play") return false;
+  advanceSequencePhase();
+  return true;
+}
+
+function resetGachaAfterRevealFromGesture() {
+  if (seqPhase !== "postReveal") return false;
+  advanceSequencePhase();
+  return true;
+}
+
+function currentGachaPhase() {
+  return seqPhase;
+}
+
+function currentRevealShellColor() {
+  if (seqPhase !== "postReveal") return null;
+  const hero =
+    capsuleLayers &&
+    capsuleLayers[seqHeroLayer] &&
+    capsuleLayers[seqHeroLayer][seqHeroIndex];
+  return hero && hero.shellColor ? String(hero.shellColor) : null;
+}
+
 /** Skip to the next sub-step while scatterFocus / morph are autoplaying. */
 function skipSequencePhase() {
   if (seqPhase === "scatterFocus") {
@@ -800,6 +829,14 @@ function setup() {
         skipSequencePhase();
       }
     });
+  }
+  if (typeof window !== "undefined") {
+    window.gachaGestureBridge = {
+      triggerPull: triggerGachaFromGesture,
+      resetAfterReveal: resetGachaAfterRevealFromGesture,
+      getPhase: currentGachaPhase,
+      getRevealShellColor: currentRevealShellColor,
+    };
   }
   if (typeof BroadcastChannel !== "undefined") {
     gachaBroadcastChannel = new BroadcastChannel(gachaChannelName());
