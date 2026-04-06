@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gacha control</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;700;800&display=swap"
+    />
+    <style>
+      :root {
+        /* Same as CAPSULE_SHELL_PALETTE / gachaCopy GACHA_SHELL_PALETTE */
+        --shell-a: #76a8c8;
+        --shell-b: #dac58e;
+        --shell-c: #c98175;
+        --shell-d: #9abb76;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #000;
+        color: #e8e8e8;
+        font-family: "Instrument Sans", sans-serif;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        min-height: 100dvh;
+        box-sizing: border-box;
+        text-align: center;
+      }
+
+      .control-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        width: 100%;
+        align-items: center;
+        padding: 32px 24px;
+        box-sizing: border-box;
+      }
+
+      .control-main > .panel:not([hidden]) {
+        flex: 1;
+        justify-content: center;
+      }
+
+      #state-reveal.panel:not([hidden]) {
+        justify-content: flex-start;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 28px;
+        max-width: 36rem;
+        width: 100%;
+      }
+
+      .panel[hidden] {
+        display: none !important;
+      }
+
+      .instruction {
+        font-size: clamp(1.35rem, 4vw, 1.75rem);
+        font-weight: 700;
+        line-height: 1.35;
+        color: #fff;
+      }
+
+      .btn-gacha {
+        padding: 14px 28px;
+        font-size: 1rem;
+        font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+        border: 1px solid #888;
+        border-radius: 10px;
+        background: #fff;
+        color: #111;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      .btn-gacha:hover:not(:disabled) {
+        background: #f5f5f5;
+      }
+
+      .btn-gacha:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .gacha-knob-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .gacha-knob-caption {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.88);
+        letter-spacing: 0.02em;
+      }
+
+      /* Twist dial: outer housing + rotating knurled stack */
+      .gacha-knob {
+        position: relative;
+        width: 120px;
+        height: 120px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .gacha-knob:focus {
+        outline: none;
+      }
+
+      .gacha-knob:focus-visible {
+        outline: 2px solid rgba(255, 255, 255, 0.9);
+        outline-offset: 6px;
+        border-radius: 50%;
+      }
+
+      .gacha-knob:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+
+      .gacha-knob:not(:disabled):hover .gacha-knob__twist {
+        filter: brightness(1.05);
+      }
+
+      /* Rotating assembly: entire face spins clockwise on click */
+      .gacha-knob__twist {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        pointer-events: none;
+        transform-origin: 50% 50%;
+      }
+
+      @keyframes gachaKnobFaceIdle {
+        0%,
+        100% {
+          filter: brightness(1);
+        }
+        50% {
+          filter: brightness(1.04);
+        }
+      }
+
+      .gacha-knob__chrome {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        pointer-events: none;
+        background: linear-gradient(160deg, #e4e4ea, #9c9ca8);
+        box-shadow:
+          inset 0 2px 4px rgba(255, 255, 255, 0.5),
+          inset 0 -3px 8px rgba(0, 0, 0, 0.25),
+          0 8px 22px rgba(0, 0, 0, 0.5);
+        animation: gachaKnobFaceIdle 3.5s ease-in-out infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .gacha-knob__chrome {
+          animation: none;
+        }
+      }
+
+      .gacha-knob__disk {
+        position: absolute;
+        inset: 5px;
+        border-radius: 50%;
+        background: #f4f4f8;
+        box-shadow: inset 0 2px 6px rgba(255, 255, 255, 0.95);
+      }
+
+      /* Concentric rings: outer shell-a (blue), inner stripe shell-b (cream) */
+      .gacha-knob__rings {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 50% 50%,
+          #fafafc 0%,
+          #fafafc 48%,
+          var(--shell-b) 48%,
+          var(--shell-b) 52%,
+          var(--shell-a) 52%,
+          var(--shell-a) 64%,
+          #ececf2 64%,
+          #ececf2 100%
+        );
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+      }
+
+      /* Triangle (shell-c) + dots — directional hints, rotate with knob */
+      .gacha-knob__tri {
+        position: absolute;
+        z-index: 1;
+        left: 11%;
+        top: 42%;
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-top: 8px solid var(--shell-c);
+        filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+      }
+
+      .gacha-knob__dot {
+        position: absolute;
+        z-index: 1;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        top: 40%;
+        box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+      }
+
+      .gacha-knob__dot--a {
+        left: 20%;
+        background: var(--shell-a);
+      }
+
+      .gacha-knob__dot--b {
+        left: 26%;
+        background: var(--shell-d);
+      }
+
+      /* Curved clockwise arrow (shell-b stroke) */
+      .gacha-knob__arc {
+        position: absolute;
+        z-index: 1;
+        left: 8%;
+        top: 10%;
+        width: 48%;
+        height: 48%;
+        overflow: visible;
+        pointer-events: none;
+      }
+
+      .gacha-knob__arc path {
+        fill: none;
+        stroke: var(--shell-b);
+        stroke-width: 4.5;
+        stroke-linecap: round;
+        filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.15));
+      }
+
+      /* Raised horizontal fin — spans most of the diameter */
+      .gacha-knob__fin {
+        position: absolute;
+        left: 7%;
+        right: 7%;
+        top: 50%;
+        height: 26%;
+        margin-top: -13%;
+        border-radius: 7px;
+        background: linear-gradient(
+          180deg,
+          #ffffff 0%,
+          #f0f0f5 35%,
+          #d8d8e2 100%
+        );
+        box-shadow:
+          0 5px 10px rgba(0, 0, 0, 0.35),
+          0 1px 0 rgba(255, 255, 255, 0.9),
+          inset 0 2px 5px rgba(255, 255, 255, 0.95),
+          inset 0 -2px 4px rgba(0, 0, 0, 0.08);
+        z-index: 2;
+      }
+
+      /* Half turn clockwise; duration 3× previous (1.65s) */
+      @keyframes gachaKnobTwist {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(180deg);
+        }
+      }
+
+      @keyframes gachaKnobTwistReduced {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0.75;
+        }
+      }
+
+      .gacha-knob__twist.is-twisting {
+        animation: gachaKnobTwist 1.65s cubic-bezier(0.2, 0.75, 0.28, 1)
+          forwards;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .gacha-knob__twist.is-twisting {
+          animation: gachaKnobTwistReduced 0.6s ease-out forwards;
+        }
+      }
+
+      .waiting {
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: #c8c8c8;
+      }
+
+      .reveal-headline {
+        font-size: clamp(1.75rem, 5vw, 2.35rem);
+        font-weight: 800;
+        color: #fff;
+        line-height: 1.2;
+      }
+
+      /* Pet only (no capsule); size aligned with prior control panel scale */
+      .reveal-character {
+        display: block;
+        max-width: min(224px, 54.6vw);
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+        border-radius: 14px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      }
+
+      .reveal-character[hidden] {
+        display: none;
+      }
+
+      .reveal-sub {
+        font-size: clamp(1rem, 3vw, 1.25rem);
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.92);
+        line-height: 1.45;
+      }
+
+      .reveal-foot {
+        font-size: clamp(0.9rem, 2.5vw, 1.05rem);
+        color: rgba(255, 255, 255, 0.82);
+        line-height: 1.4;
+      }
+
+      .panel-footer {
+        position: fixed;
+        bottom: 32px;
+        left: 0;
+        right: 0;
+        z-index: 20;
+        max-width: 28rem;
+        margin: 0 auto;
+        width: calc(100% - 48px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        pointer-events: none;
+      }
+
+      .panel-footer .btn-gacha {
+        pointer-events: auto;
+      }
+
+      .btn-close-reveal {
+        background: transparent;
+        color: #e8e8e8;
+        border-color: #666;
+        box-shadow: none;
+      }
+
+      .btn-close-reveal:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="control-main">
+      <div id="state-idle" class="panel">
+        <p class="instruction">take a dog with you today</p>
+        <div class="gacha-knob-wrap">
+          <button
+            type="button"
+            class="gacha-knob"
+            id="turn-gacha-btn"
+            aria-label="Turn the gacha"
+          >
+            <span class="gacha-knob__twist" aria-hidden="true">
+              <span class="gacha-knob__chrome"></span>
+              <span class="gacha-knob__disk">
+                <span class="gacha-knob__rings"></span>
+                <span class="gacha-knob__tri"></span>
+                <span class="gacha-knob__dot gacha-knob__dot--a"></span>
+                <span class="gacha-knob__dot gacha-knob__dot--b"></span>
+                <svg
+                  class="gacha-knob__arc"
+                  viewBox="0 0 100 100"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M 14 58 A 42 42 0 0 1 58 14"
+                  />
+                </svg>
+                <span class="gacha-knob__fin"></span>
+              </span>
+            </span>
+          </button>
+          <p class="gacha-knob-caption">Turn the gacha</p>
+        </div>
+      </div>
+
+      <div id="state-waiting" class="panel" hidden>
+        <p class="instruction">take a dog with you today</p>
+        <p class="waiting">Gacha running…</p>
+      </div>
+
+      <div id="state-reveal" class="panel" hidden>
+        <p class="reveal-headline" id="reveal-headline"></p>
+        <img
+          id="reveal-character-img"
+          class="reveal-character"
+          alt=""
+          width="224"
+          height="224"
+          hidden
+        />
+        <p class="reveal-sub" id="reveal-sub"></p>
+        <p class="reveal-foot" id="reveal-foot"></p>
+      </div>
+    </main>
+
+    <div id="panel-footer" class="panel-footer">
+      <button
+        type="button"
+        class="btn-gacha btn-close-reveal"
+        id="reveal-close-btn"
+        hidden
+      >
+        Close
+      </button>
+    </div>
+
+    <script src="./gachaCopy.js"></script>
+    <script>
+      (function () {
+        const name =
+          window.GACHA_BROADCAST_CHANNEL_NAME || "data-vis-gacha";
+        const copy = window.GACHA_COPY || {};
+
+        const idleEl = document.getElementById("state-idle");
+        const waitingEl = document.getElementById("state-waiting");
+        const revealEl = document.getElementById("state-reveal");
+        const turnBtn = document.getElementById("turn-gacha-btn");
+        const twistEl = turnBtn.querySelector(".gacha-knob__twist");
+        const prefersReducedMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        );
+        let twistAnimLock = false;
+
+        const headlineEl = document.getElementById("reveal-headline");
+        const subEl = document.getElementById("reveal-sub");
+        const footEl = document.getElementById("reveal-foot");
+        const revealCharacterImg = document.getElementById("reveal-character-img");
+        const revealCloseBtn = document.getElementById("reveal-close-btn");
+
+        function setFooterSlot(isReveal) {
+          revealCloseBtn.hidden = !isReveal;
+        }
+
+        function animalAssetPath(animalIndex) {
+          const files = window.GACHA_ANIMAL_FILES || [];
+          if (!files.length) return "";
+          let i =
+            typeof animalIndex === "number" && !Number.isNaN(animalIndex)
+              ? Math.floor(animalIndex)
+              : 0;
+          i = Math.max(0, Math.min(files.length - 1, i));
+          return "assets/animals/" + files[i];
+        }
+
+        function showState(which) {
+          idleEl.hidden = which !== "idle";
+          waitingEl.hidden = which !== "waiting";
+          revealEl.hidden = which !== "reveal";
+        }
+
+        function applyState(msg) {
+          if (!msg || msg.type !== "STATE" || !msg.phase) return;
+          const phase = msg.phase;
+          if (phase === "play") {
+            showState("idle");
+            turnBtn.disabled = false;
+            setFooterSlot(false);
+          } else if (phase === "scatterFocus" || phase === "morph") {
+            showState("waiting");
+            setFooterSlot(false);
+          } else if (phase === "postReveal") {
+            const animal = msg.animalName || "friend";
+            headlineEl.textContent = "Meet " + animal;
+            subEl.textContent = copy.subline || "";
+            footEl.textContent = copy.footer || "";
+            const path = animalAssetPath(msg.animalIndex);
+            if (path) {
+              revealCharacterImg.hidden = false;
+              revealCharacterImg.alt = "Meet " + animal;
+              revealCharacterImg.src = path;
+            } else {
+              revealCharacterImg.hidden = true;
+              revealCharacterImg.removeAttribute("src");
+            }
+            showState("reveal");
+            setFooterSlot(true);
+          } else {
+            showState("idle");
+            setFooterSlot(false);
+          }
+        }
+
+        if (typeof BroadcastChannel === "undefined") {
+          turnBtn.disabled = true;
+          setFooterSlot(false);
+          return;
+        }
+
+        const ch = new BroadcastChannel(name);
+        ch.onmessage = function (ev) {
+          applyState(ev.data);
+        };
+
+        function finishKnobTwistAndStartGacha() {
+          if (!twistEl) {
+            twistAnimLock = false;
+            ch.postMessage({ type: "START_GACHA" });
+            return;
+          }
+          twistEl.classList.remove("is-twisting");
+          twistAnimLock = false;
+          ch.postMessage({ type: "START_GACHA" });
+        }
+
+        function onTwistAnimationEnd(ev) {
+          if (!twistEl || ev.target !== twistEl) return;
+          if (
+            ev.animationName !== "gachaKnobTwist" &&
+            ev.animationName !== "gachaKnobTwistReduced"
+          ) {
+            return;
+          }
+          twistEl.removeEventListener("animationend", onTwistAnimationEnd);
+          finishKnobTwistAndStartGacha();
+        }
+
+        turnBtn.addEventListener("click", function () {
+          if (turnBtn.disabled || twistAnimLock) return;
+          twistAnimLock = true;
+          if (twistEl) {
+            twistEl.classList.remove("is-twisting");
+            void twistEl.offsetWidth;
+            twistEl.classList.add("is-twisting");
+            if (prefersReducedMotion.matches) {
+              window.setTimeout(function () {
+                finishKnobTwistAndStartGacha();
+              }, 650);
+            } else {
+              twistEl.addEventListener("animationend", onTwistAnimationEnd);
+            }
+          } else {
+            finishKnobTwistAndStartGacha();
+          }
+        });
+
+        revealCloseBtn.addEventListener("click", function () {
+          ch.postMessage({ type: "RESET_AFTER_REVEAL" });
+        });
+
+        showState("idle");
+        setFooterSlot(false);
+        ch.postMessage({ type: "REQUEST_STATE" });
+      })();
+    </script>
+  </body>
+</html>
