@@ -14,12 +14,7 @@ const CAPSULE_ANIMAL_FILES = [
   "dog-7.png",
 ];
 
-const CAPSULE_SHELL_PALETTE = [
-  "#76A8C8",
-  "#DAC58E",
-  "#C98175",
-  "#9ABB76",
-];
+const CAPSULE_SHELL_PALETTE = ["#76A8C8", "#DAC58E", "#C98175", "#9ABB76"];
 
 const CAPSULE_ANIMAL_MAX_FRAC = 0.75;
 
@@ -63,7 +58,7 @@ function rgbToHex(r, g, b) {
       .map((v) =>
         constrain(floor(v + 0.5), 0, 255)
           .toString(16)
-          .padStart(2, "0")
+          .padStart(2, "0"),
       )
       .join("")
   );
@@ -247,9 +242,12 @@ function createCapsuleComponent() {
         const wob = sin(glowElapsedMs * 0.0038 + i * phase) * 18;
         const len = r1 + wob;
         const al = constrain(
-          a0 * pulse * fade * (0.5 + 0.5 * sin(glowElapsedMs * 0.0026 + i * 0.7)),
+          a0 *
+            pulse *
+            fade *
+            (0.5 + 0.5 * sin(glowElapsedMs * 0.0026 + i * 0.7)),
           0,
-          255
+          255,
         );
         if (usePg) {
           usePg.stroke(255, 234, 175, al);
@@ -258,7 +256,7 @@ function createCapsuleComponent() {
             ax + cos(ang) * r0,
             ay + sin(ang) * r0,
             ax + cos(ang) * len,
-            ay + sin(ang) * len
+            ay + sin(ang) * len,
           );
         } else {
           stroke(255, 234, 175, al);
@@ -267,7 +265,7 @@ function createCapsuleComponent() {
             ax + cos(ang) * r0,
             ay + sin(ang) * r0,
             ax + cos(ang) * len,
-            ay + sin(ang) * len
+            ay + sin(ang) * len,
           );
         }
       }
@@ -303,7 +301,7 @@ function createCapsuleComponent() {
     hopY,
     domeRad,
     da,
-    glowElapsedMs
+    glowElapsedMs,
   ) {
     const drawImg = (img, x, y, w, h, alpha) =>
       drawImageAlpha(pg, img, x, y, w, h, alpha);
@@ -316,7 +314,7 @@ function createCapsuleComponent() {
       BOWL_ORIGIN.y,
       BOWL_SIZE.w,
       BOWL_SIZE.h,
-      da
+      da,
     );
 
     drawDomeGroup(pg, domeRad, () => {
@@ -326,7 +324,7 @@ function createCapsuleComponent() {
         BACK_DOME_ORIGIN.y,
         BACK_DOME_SIZE.w,
         BACK_DOME_SIZE.h,
-        da
+        da,
       );
     });
 
@@ -355,7 +353,7 @@ function createCapsuleComponent() {
         FRONT_DOME_INNER.y,
         FRONT_DOME_SIZE.w,
         FRONT_DOME_SIZE.h,
-        da
+        da,
       );
     });
 
@@ -365,7 +363,7 @@ function createCapsuleComponent() {
       BAND_ORIGIN.y,
       BAND_SIZE.w,
       BAND_SIZE.h,
-      da
+      da,
     );
 
     popCapsuleSpace(pg);
@@ -391,7 +389,7 @@ function createCapsuleComponent() {
       }
 
       animalImages = CAPSULE_ANIMAL_FILES.map((name) =>
-        loadImage(`assets/animals/${name}`)
+        loadImage(`assets/animals/${name}`),
       );
     },
 
@@ -427,7 +425,7 @@ function createCapsuleComponent() {
       domeOpenDeg,
       drawAlpha,
       animalScaleMul,
-      glowElapsedMs
+      glowElapsedMs,
     ) {
       if (!defaultLayers || animalImages.length === 0) return;
 
@@ -443,7 +441,9 @@ function createCapsuleComponent() {
       }
 
       const hopY =
-        animalOffsetY != null && !Number.isNaN(animalOffsetY) ? animalOffsetY : 0;
+        animalOffsetY != null && !Number.isNaN(animalOffsetY)
+          ? animalOffsetY
+          : 0;
       const deg =
         domeOpenDeg != null && !Number.isNaN(domeOpenDeg) ? domeOpenDeg : 0;
       const domeRad = radians(deg);
@@ -455,8 +455,7 @@ function createCapsuleComponent() {
       const idx = floor(constrain(animalIndex, 0, animalImages.length - 1));
       const animal = animalImages[idx];
 
-      const maxSideArt =
-        2 * ANIMAL_MAX_RADIUS_U * CAPSULE_ANIMAL_MAX_FRAC;
+      const maxSideArt = 2 * ANIMAL_MAX_RADIUS_U * CAPSULE_ANIMAL_MAX_FRAC;
       const ar = min(maxSideArt / animal.width, maxSideArt / animal.height);
       let animW = animal.width * ar;
       let animH = animal.height * ar;
@@ -487,7 +486,7 @@ function createCapsuleComponent() {
         hopY,
         domeRad,
         da,
-        glowMs
+        glowMs,
       );
     },
   };

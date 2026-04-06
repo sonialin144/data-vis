@@ -416,9 +416,7 @@
                   viewBox="0 0 100 100"
                   aria-hidden="true"
                 >
-                  <path
-                    d="M 14 58 A 42 42 0 0 1 58 14"
-                  />
+                  <path d="M 14 58 A 42 42 0 0 1 58 14" />
                 </svg>
                 <span class="gacha-knob__fin"></span>
               </span>
@@ -459,11 +457,30 @@
       </button>
     </div>
 
+    <script>
+      (function () {
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", "./assets/animals/meta.json", false);
+          xhr.send(null);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            var data = JSON.parse(xhr.responseText);
+            window.GACHA_ANIMAL_META =
+              data && typeof data === "object" && !Array.isArray(data)
+                ? data
+                : {};
+          } else {
+            window.GACHA_ANIMAL_META = {};
+          }
+        } catch (e) {
+          window.GACHA_ANIMAL_META = {};
+        }
+      })();
+    </script>
     <script src="./gachaCopy.js"></script>
     <script>
       (function () {
-        const name =
-          window.GACHA_BROADCAST_CHANNEL_NAME || "data-vis-gacha";
+        const name = window.GACHA_BROADCAST_CHANNEL_NAME || "data-vis-gacha";
         const copy = window.GACHA_COPY || {};
 
         const idleEl = document.getElementById("state-idle");
@@ -472,14 +489,16 @@
         const turnBtn = document.getElementById("turn-gacha-btn");
         const twistEl = turnBtn.querySelector(".gacha-knob__twist");
         const prefersReducedMotion = window.matchMedia(
-          "(prefers-reduced-motion: reduce)"
+          "(prefers-reduced-motion: reduce)",
         );
         let twistAnimLock = false;
 
         const headlineEl = document.getElementById("reveal-headline");
         const subEl = document.getElementById("reveal-sub");
         const footEl = document.getElementById("reveal-foot");
-        const revealCharacterImg = document.getElementById("reveal-character-img");
+        const revealCharacterImg = document.getElementById(
+          "reveal-character-img",
+        );
         const revealCloseBtn = document.getElementById("reveal-close-btn");
 
         function setFooterSlot(isReveal) {
@@ -516,8 +535,15 @@
           } else if (phase === "postReveal") {
             const animal = msg.animalName || "friend";
             headlineEl.textContent = "Meet " + animal;
-            subEl.textContent = copy.subline || "";
-            footEl.textContent = copy.footer || "";
+            subEl.textContent =
+              msg.animalDescription != null &&
+              String(msg.animalDescription).length
+                ? String(msg.animalDescription)
+                : copy.subline || "";
+            footEl.textContent =
+              msg.animalLocation != null && String(msg.animalLocation).length
+                ? String(msg.animalLocation)
+                : copy.footer || "";
             const path = animalAssetPath(msg.animalIndex);
             if (path) {
               revealCharacterImg.hidden = false;

@@ -2,8 +2,7 @@
 window.GACHA_BROADCAST_CHANNEL_NAME = "data-vis-gacha";
 window.GACHA_COPY = {
   subline: "You were the first one to give him a chance.",
-  footer:
-    "13 capsules were taken today, meaning 13 animals one step closer to home",
+  footer: "",
 };
 
 /** Must stay in sync with CAPSULE_ANIMAL_FILES in capsuleComponent.js */
@@ -16,6 +15,9 @@ window.GACHA_ANIMAL_FILES = [
   "dog-6.png",
   "dog-7.png",
 ];
+
+/** Map filename → { name, description, location }; from assets/animals/meta.json */
+window.GACHA_ANIMAL_META = window.GACHA_ANIMAL_META || {};
 
 /** Must stay in sync with CAPSULE_SHELL_PALETTE in capsuleComponent.js */
 const GACHA_SHELL_PALETTE = ["#76A8C8", "#DAC58E", "#C98175", "#9ABB76"];
@@ -42,7 +44,7 @@ function gachaRgbToHex(r, g, b) {
       .map((v) =>
         Math.min(255, Math.max(0, Math.floor(v + 0.5)))
           .toString(16)
-          .padStart(2, "0")
+          .padStart(2, "0"),
       )
       .join("")
   );

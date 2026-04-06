@@ -67,19 +67,36 @@
       #seq-next-btn:hover {
         background: #f5f5f5;
       }
-
-      #control-panel-link {
-        position: fixed;
-        top: 12px;
-        left: 12px;
-        z-index: 10;
-        font-size: 14px;
-        color: #e8e8e8;
-        text-decoration: underline;
-        text-underline-offset: 3px;
+      body:not(.dev-ui-visible) #seq-next-btn {
+        visibility: hidden;
+        pointer-events: none;
       }
-      #control-panel-link:hover {
-        color: #fff;
+
+      /* Secret hit target: same as page background */
+      #dev-ui-toggle {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 10;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: #000;
+        cursor: pointer;
+      }
+      #dev-ui-toggle:hover {
+        outline: 2px solid rgba(232, 232, 232, 0.5);
+        outline-offset: 2px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      #dev-ui-toggle:focus {
+        outline: none;
+      }
+      #dev-ui-toggle:focus-visible {
+        outline: 2px solid #555;
+        outline-offset: 2px;
       }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
@@ -88,16 +105,20 @@
     <script defer src="./sketch.js"></script>
   </head>
   <body>
-    <a
-      id="control-panel-link"
-      href="./control.html"
-      target="_blank"
-      rel="noopener noreferrer"
-      >Control panel</a
-    >
     <button type="button" id="seq-next-btn" title="Start sequence (idle) or restore (done); during run, skip ahead">
       Next sequence
     </button>
+    <button
+      type="button"
+      id="dev-ui-toggle"
+      aria-label="Toggle developer controls"
+      title=""
+    ></button>
     <main id="sketch-holder"></main>
+    <script>
+      document.getElementById("dev-ui-toggle").addEventListener("click", function () {
+        document.body.classList.toggle("dev-ui-visible");
+      });
+    </script>
   </body>
 </html>

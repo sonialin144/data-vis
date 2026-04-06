@@ -108,6 +108,10 @@ let doneRevealStartMs = null;
 /** `millis()` when post-reveal phase started; hero slides + text reveals. */
 let postRevealStartMs = null;
 let postRevealAnimalName = "Biscuit";
+/** Subline under “Meet …”; from meta.json or GACHA_COPY fallback. */
+let postRevealAnimalDescription = "";
+/** Footer line; from meta.json `location` or GACHA_COPY.footer fallback. */
+let postRevealAnimalLocation = "";
 
 /** @type {BroadcastChannel | null} */
 let gachaBroadcastChannel = null;
@@ -118,11 +122,23 @@ let lastBroadcastAnimalName = null;
 let lastBroadcastAnimalIndex = null;
 /** @type {string | null} */
 let lastBroadcastShellColor = null;
+/** @type {string | null} */
+let lastBroadcastAnimalDescription = null;
+/** @type {string | null} */
+let lastBroadcastAnimalLocation = null;
 
 function gachaChannelName() {
   return (
     (typeof window !== "undefined" && window.GACHA_BROADCAST_CHANNEL_NAME) ||
     "data-vis-gacha"
+  );
+}
+
+function isDevUiVisible() {
+  return (
+    typeof document !== "undefined" &&
+    document.body &&
+    document.body.classList.contains("dev-ui-visible")
   );
 }
 
@@ -141,12 +157,18 @@ function postGachaStateNow() {
   lastBroadcastAnimalName = name;
   lastBroadcastAnimalIndex = animalIdx;
   lastBroadcastShellColor = shellCol != null ? String(shellCol) : null;
+  lastBroadcastAnimalDescription =
+    seqPhase === "postReveal" ? postRevealAnimalDescription : null;
+  lastBroadcastAnimalLocation =
+    seqPhase === "postReveal" ? postRevealAnimalLocation : null;
   gachaBroadcastChannel.postMessage({
     type: "STATE",
     phase: seqPhase,
     ...(seqPhase === "postReveal"
       ? {
           animalName: postRevealAnimalName,
+          animalDescription: postRevealAnimalDescription,
+          animalLocation: postRevealAnimalLocation,
           animalIndex: animalIdx,
           shellColor: shellCol,
         }
@@ -166,12 +188,16 @@ function broadcastGachaStateIfChanged() {
       ? capsuleLayers[seqHeroLayer][seqHeroIndex].shellColor
       : null;
   const shellKey = shellCol != null ? String(shellCol) : null;
+  const desc = seqPhase === "postReveal" ? postRevealAnimalDescription : null;
+  const loc = seqPhase === "postReveal" ? postRevealAnimalLocation : null;
   if (
     seqPhase !== lastBroadcastPhase ||
     (seqPhase === "postReveal" &&
       (name !== lastBroadcastAnimalName ||
         animalIdx !== lastBroadcastAnimalIndex ||
-        shellKey !== lastBroadcastShellColor))
+        shellKey !== lastBroadcastShellColor ||
+        desc !== lastBroadcastAnimalDescription ||
+        loc !== lastBroadcastAnimalLocation))
   ) {
     postGachaStateNow();
   }
@@ -193,7 +219,7 @@ function easeOutCubic(t) {
 
 /** Hero pet scale-up after dome open (multiplier on drawn animal size, 1 → DONE_ANIMAL_REVEAL_SCALE). */
 const DONE_ANIMAL_GROW_MS = 1000;
-const DONE_ANIMAL_REVEAL_SCALE = 1.50;
+const DONE_ANIMAL_REVEAL_SCALE = 1.5;
 const HERO_OPEN_JUMP_AMP = -44;
 
 const POST_REVEAL_DUR_MS = 1100;
@@ -204,26 +230,80 @@ const POST_REVEAL_TEXT_SHIFT_X = 48;
 
 const _gachaCopy =
   typeof window !== "undefined" && window.GACHA_COPY ? window.GACHA_COPY : null;
-const POST_REVEAL_SUBLINE =
-  (_gachaCopy && _gachaCopy.subline) ||
-  "You were the first one to give him a chance.";
-const POST_REVEAL_FOOTER =
-  (_gachaCopy && _gachaCopy.footer) ||
-  "13 capsules were taken today, meaning 13 animals one step closer to home";
+const POST_REVEAL_SUBLINE = (_gachaCopy && _gachaCopy.subline) || "";
+const POST_REVEAL_FOOTER = (_gachaCopy && _gachaCopy.footer) || "";
 
-const ANIMAL_NAMES = [
-  "Biscuit",
-  "Mochi",
-  "Pepper",
-  "Sunny",
-  "Waffles",
-  "Maple",
-  "Clover",
-];
+function animalMetaObject() {
+  const o =
+    typeof window !== "undefined" && window.GACHA_ANIMAL_META
+      ? window.GACHA_ANIMAL_META
+      : null;
+  return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+}
+
+function animalFilenameForIndex(animalIndex) {
+  const files =
+    typeof window !== "undefined" && Array.isArray(window.GACHA_ANIMAL_FILES)
+      ? window.GACHA_ANIMAL_FILES
+      : [];
+  const n = files.length;
+  if (n === 0) return "";
+  const i = floor(constrain(animalIndex, 0, n - 1));
+  return files[i] || "";
+}
+
+function animalMetaForIndex(animalIndex) {
+  const fn = animalFilenameForIndex(animalIndex);
+  if (!fn) return null;
+  const row = animalMetaObject()[fn];
+  if (!row || typeof row !== "object") return null;
+  return row;
+}
+
+function animalNameFromFilename(filename) {
+  if (!filename || typeof filename !== "string") return "friend";
+  const base = filename.replace(/\.[^/.]+$/, "");
+  const words = base.replace(/[_-]+/g, " ").trim().split(/\s+/);
+  if (!words.length || (words.length === 1 && !words[0])) return "friend";
+  return words
+    .map((w) => {
+      const lower = w.toLowerCase();
+      if (/^\d+$/.test(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+function animalNameForIndex(animalIndex) {
+  const row = animalMetaForIndex(animalIndex);
+  if (row && typeof row.name === "string" && row.name.trim()) {
+    return row.name.trim();
+  }
+  const fn = animalFilenameForIndex(animalIndex);
+  if (!fn) return "Biscuit";
+  return animalNameFromFilename(fn) || "friend";
+}
+
+function animalDescriptionForIndex(animalIndex) {
+  const row = animalMetaForIndex(animalIndex);
+  if (row && typeof row.description === "string" && row.description.trim()) {
+    return row.description.trim();
+  }
+  return POST_REVEAL_SUBLINE;
+}
+
+function animalLocationForIndex(animalIndex) {
+  const row = animalMetaForIndex(animalIndex);
+  if (row && typeof row.location === "string" && row.location.trim()) {
+    return row.location.trim();
+  }
+  return POST_REVEAL_FOOTER;
+}
 
 /** Current hero dome rotation (deg) for draw; 0 when closed, MORPH_DOME_OPEN_MAX_DEG when fully open. */
 function heroMorphDomeOpenDeg() {
-  if (seqPhase === "done" || seqPhase === "postReveal") return MORPH_DOME_OPEN_MAX_DEG;
+  if (seqPhase === "done" || seqPhase === "postReveal")
+    return MORPH_DOME_OPEN_MAX_DEG;
   if (seqPhase !== "morph" || morphOpenStartMs === null) return 0;
   const t = min((millis() - morphOpenStartMs) / OPEN_DUR, 1);
   const e = easeInOutCubic(t);
@@ -251,6 +331,13 @@ const SEQ_FOCUS_ANGLE_K = 0.046;
 const SEQ_FOCUS_SCALE_K = 0.042;
 
 function preload() {
+  const metaRaw = loadJSON("assets/animals/meta.json");
+  if (typeof window !== "undefined") {
+    window.GACHA_ANIMAL_META =
+      metaRaw && typeof metaRaw === "object" && !Array.isArray(metaRaw)
+        ? metaRaw
+        : {};
+  }
   capsule = createCapsuleComponent();
   capsule.preload();
 }
@@ -293,7 +380,8 @@ function updateAnimalHops(instances) {
       if (inst.hopFrame > HOP_TOTAL_FRAMES) {
         inst.hopFrame = 0;
         inst.nextHopFrame =
-          frameCount + floor(random(HOP_INTERVAL_MIN_FRAMES, HOP_INTERVAL_MAX_FRAMES));
+          frameCount +
+          floor(random(HOP_INTERVAL_MIN_FRAMES, HOP_INTERVAL_MAX_FRAMES));
       }
     } else if (frameCount >= inst.nextHopFrame) {
       inst.hopFrame = 1;
@@ -349,9 +437,7 @@ function layoutCapsules() {
 }
 
 function snapshotCapsules() {
-  return capsuleLayers.map((layer) =>
-    layer.map((inst) => ({ ...inst }))
-  );
+  return capsuleLayers.map((layer) => layer.map((inst) => ({ ...inst })));
 }
 
 function restoreCapsules(snap) {
@@ -502,8 +588,9 @@ function skipSequencePhase() {
     doneRevealStartMs = millis();
     postRevealStartMs = millis();
     const h = capsuleLayers[seqHeroLayer][seqHeroIndex];
-    postRevealAnimalName =
-      ANIMAL_NAMES[h.animalIndex % ANIMAL_NAMES.length] || "Biscuit";
+    postRevealAnimalName = animalNameForIndex(h.animalIndex);
+    postRevealAnimalDescription = animalDescriptionForIndex(h.animalIndex);
+    postRevealAnimalLocation = animalLocationForIndex(h.animalIndex);
   }
 }
 
@@ -564,8 +651,9 @@ function updateSequenceAnimation() {
       seqPhaseStartFrame = frameCount;
       doneRevealStartMs = millis();
       postRevealStartMs = millis();
-      postRevealAnimalName =
-        ANIMAL_NAMES[h.animalIndex % ANIMAL_NAMES.length] || "Biscuit";
+      postRevealAnimalName = animalNameForIndex(h.animalIndex);
+      postRevealAnimalDescription = animalDescriptionForIndex(h.animalIndex);
+      postRevealAnimalLocation = animalLocationForIndex(h.animalIndex);
     }
   } else if (seqPhase === "postReveal") {
     const h = capsuleLayers[seqHeroLayer][seqHeroIndex];
@@ -624,10 +712,7 @@ function setup() {
       if (!d || typeof d !== "object") return;
       if (d.type === "START_GACHA" && seqPhase === "play") {
         advanceSequencePhase();
-      } else if (
-        d.type === "RESET_AFTER_REVEAL" &&
-        seqPhase === "postReveal"
-      ) {
+      } else if (d.type === "RESET_AFTER_REVEAL" && seqPhase === "postReveal") {
         advanceSequencePhase();
       } else if (d.type === "REQUEST_STATE") {
         postGachaStateNow();
@@ -642,7 +727,7 @@ function setup() {
  * Background color comes from the main canvas clear in draw().
  */
 function drawCapsuleSceneTo(pg, layerIndex) {
-  const instances = capsuleLayers[layerIndex];
+  const instances = capsuleLayers[layerIndex] || [];
   pg.push();
   pg.resetMatrix();
   pg.colorMode(RGB, 255);
@@ -655,11 +740,10 @@ function drawCapsuleSceneTo(pg, layerIndex) {
     if (alpha < 2) continue;
 
     const isHero =
-      seqPhase !== "play" &&
-      layerIndex === seqHeroLayer &&
-      i === seqHeroIndex;
+      seqPhase !== "play" && layerIndex === seqHeroLayer && i === seqHeroIndex;
     const domeOpenDeg =
-      isHero && (seqPhase === "morph" || seqPhase === "done" || seqPhase === "postReveal")
+      isHero &&
+      (seqPhase === "morph" || seqPhase === "done" || seqPhase === "postReveal")
         ? heroMorphDomeOpenDeg()
         : 0;
 
@@ -669,7 +753,8 @@ function drawCapsuleSceneTo(pg, layerIndex) {
         : 1;
     const displayW = CAPSULE_DISPLAY_WIDTH * heroScale;
 
-    const isDoneHero = isHero && (seqPhase === "done" || seqPhase === "postReveal");
+    const isDoneHero =
+      isHero && (seqPhase === "done" || seqPhase === "postReveal");
     let animalScaleMul = 1;
     let glowElapsedMs = null;
     if (isDoneHero && doneRevealStartMs != null) {
@@ -693,7 +778,7 @@ function drawCapsuleSceneTo(pg, layerIndex) {
       domeOpenDeg,
       alpha,
       animalScaleMul,
-      glowElapsedMs
+      glowElapsedMs,
     );
   }
 
@@ -892,7 +977,7 @@ function drawCenterTextBox() {
   ctx.shadowBlur = 24;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 4;
-  stroke('#3989BC');
+  stroke("#3989BC");
   strokeWeight(CENTER_TEXT_STROKE_W + 2);
   strokeJoin(ROUND);
   textFont(CENTER_BOX_FONT_FAMILY);
@@ -900,7 +985,13 @@ function drawCenterTextBox() {
   textAlign(CENTER, TOP);
   textSize(CENTER_BOX_COUNT_SIZE);
   fill("#ffffff");
-  text(CENTER_BOX_COUNT_TEXT, textLeft, textTop, textW, CENTER_BOX_COUNT_SIZE + 10);
+  text(
+    CENTER_BOX_COUNT_TEXT,
+    textLeft,
+    textTop,
+    textW,
+    CENTER_BOX_COUNT_SIZE + 10,
+  );
 
   // stroke(255);
   // strokeWeight(CENTER_TEXT_STROKE_W);
@@ -916,13 +1007,15 @@ function drawCenterTextBox() {
   const line2RectY = line2Top + CENTER_LINE2_BG_PAD_Y;
   const line2RectW = line2TextW + CENTER_LINE2_BG_PAD_X * 2;
   const line2RectH =
-    CENTER_BOX_BODY_LEADING - CENTER_LINE2_BG_PAD_Y * 2 + CENTER_LINE2_BG_EXTRA_H;
+    CENTER_BOX_BODY_LEADING -
+    CENTER_LINE2_BG_PAD_Y * 2 +
+    CENTER_LINE2_BG_EXTRA_H;
   noStroke();
   fill("#F17170");
   rectMode(CORNER);
   rect(line2RectX, line2RectY, line2RectW, line2RectH, 0);
   noStroke();
-  fill('fff');
+  fill("fff");
   textStyle(BOLDITALIC);
   textAlign(CENTER, CENTER);
   text(CENTER_BOX_BODY_LINE_2, textCenterX, line2RectY + line2RectH * 0.5);
@@ -956,16 +1049,31 @@ function drawPostRevealPanel() {
   fill(255, a);
   textStyle(BOLD);
   textSize(92);
-  text(`Meet ${postRevealAnimalName}`, left + POST_REVEAL_TEXT_PAD_X, top, POST_REVEAL_TEXT_AREA_W);
+  text(
+    `Meet ${postRevealAnimalName}`,
+    left + POST_REVEAL_TEXT_PAD_X,
+    top,
+    POST_REVEAL_TEXT_AREA_W,
+  );
 
   textStyle(NORMAL);
   textSize(40);
   fill(255, a * 0.92);
-  text(POST_REVEAL_SUBLINE, left + POST_REVEAL_TEXT_PAD_X, top + 118, POST_REVEAL_TEXT_AREA_W);
+  text(
+    postRevealAnimalDescription || POST_REVEAL_SUBLINE,
+    left + POST_REVEAL_TEXT_PAD_X,
+    top + 118,
+    POST_REVEAL_TEXT_AREA_W,
+  );
 
   textSize(32);
   fill(255, a * 0.82);
-  text(POST_REVEAL_FOOTER, left + POST_REVEAL_TEXT_PAD_X, top + 190, POST_REVEAL_TEXT_AREA_W);
+  text(
+    postRevealAnimalLocation || POST_REVEAL_FOOTER,
+    left + POST_REVEAL_TEXT_PAD_X,
+    top + 190,
+    POST_REVEAL_TEXT_AREA_W,
+  );
 
   ctx.restore();
   pop();
@@ -986,7 +1094,7 @@ function draw() {
     image(
       sceneBuffers[L],
       L * SCREEN_LAYER_OFFSET_X,
-      L * SCREEN_LAYER_OFFSET_Y
+      L * SCREEN_LAYER_OFFSET_Y,
     );
   }
 
@@ -1001,17 +1109,19 @@ function draw() {
     drawPostRevealPanel();
   }
 
-  fill(235);
-  textSize(28);
-  textAlign(LEFT, TOP);
-  text(
-    "R reset  ·  D debug  ·  N start/restore or skip  ·  " +
-      (debugCollision ? "colliders ON" : "colliders OFF") +
-      "  ·  phase: " +
-      seqPhase,
-    32,
-    32
-  );
+  if (isDevUiVisible()) {
+    fill(235);
+    textSize(28);
+    textAlign(LEFT, TOP);
+    text(
+      "R reset  ·  D debug  ·  N start/restore or skip  ·  " +
+        (debugCollision ? "colliders ON" : "colliders OFF") +
+        "  ·  phase: " +
+        seqPhase,
+      32,
+      32,
+    );
+  }
 
   if (seqPhase === "play") {
     for (const layer of capsuleLayers) {

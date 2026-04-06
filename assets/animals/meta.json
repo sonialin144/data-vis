@@ -1,0 +1,42 @@
+{
+  "dog-1.png": {
+    "name": "Biscuit",
+    "description": "bYou were the first one to give him a chance.",
+    "location": "Add shelter or location."
+  },
+  "dog-2.png": {
+    "name": "Mochi",
+    "description": "mYou were the first one to give him a chance.",
+    "location": "Add shelter or location."
+  },
+  "dog-3.png": {
+    "name": "Pepper",
+    "description": "pYou were the first one to give him a chance.",
+    "location": "Add shelter or location."
+  },
+  "dog-4.png": {
+    "name": "Sunny",
+    "description": "sYou were the first one to give him a chance.",
+    "location": "Add shelter or location."
+  },
+  "dog-5.png": {
+    "name": "Waffles",
+    "description": "wYou were the first one to give him a chance.",
+    "location": "Add shelter or location."
+  },
+  "dog-6.png": {
+    "name": "Maple",
+    "description": "mYou were the first one to give him a chance.",
+    "location": "Add shelter or location."
+  },
+  "dog-7.png": {
+    "name": "Clover",
+    "description": "cYou were the first one to give him a chance.",
+    "location": "Add shelter or location."
+  },
+  "Lovebert.png": {
+    "name": "Lovebert",
+    "description": "Domestic Medium Hair / Mix / Small",
+    "location": "Add shelter or location."
+  }
+}
