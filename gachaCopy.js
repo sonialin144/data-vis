@@ -5,16 +5,8 @@ window.GACHA_COPY = {
   footer: "",
 };
 
-/** Must stay in sync with CAPSULE_ANIMAL_FILES in capsuleComponent.js */
-window.GACHA_ANIMAL_FILES = [
-  "dog-1.png",
-  "dog-2.png",
-  "dog-3.png",
-  "dog-4.png",
-  "dog-5.png",
-  "dog-6.png",
-  "dog-7.png",
-];
+/** Ordered filenames; main sketch + control panel set from meta.json keys after load */
+window.GACHA_ANIMAL_FILES = window.GACHA_ANIMAL_FILES || [];
 
 /** Map filename → { name, description, location }; from assets/animals/meta.json */
 window.GACHA_ANIMAL_META = window.GACHA_ANIMAL_META || {};

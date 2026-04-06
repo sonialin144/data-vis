@@ -4,16 +4,6 @@
  * #back-dome and #front-dome share pivot (3, 182.79) and the same rotation (CSS-style deg).
  */
 
-const CAPSULE_ANIMAL_FILES = [
-  "dog-1.png",
-  "dog-2.png",
-  "dog-3.png",
-  "dog-4.png",
-  "dog-5.png",
-  "dog-6.png",
-  "dog-7.png",
-];
-
 const CAPSULE_SHELL_PALETTE = ["#76A8C8", "#DAC58E", "#C98175", "#9ABB76"];
 
 const CAPSULE_ANIMAL_MAX_FRAC = 0.75;
@@ -388,7 +378,13 @@ function createCapsuleComponent() {
         };
       }
 
-      animalImages = CAPSULE_ANIMAL_FILES.map((name) =>
+      const files =
+        typeof window !== "undefined" &&
+        Array.isArray(window.GACHA_ANIMAL_FILES) &&
+        window.GACHA_ANIMAL_FILES.length > 0
+          ? window.GACHA_ANIMAL_FILES
+          : [];
+      animalImages = files.map((name) =>
         loadImage(`assets/animals/${name}`),
       );
     },

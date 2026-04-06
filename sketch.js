@@ -1,16 +1,47 @@
 const CANVAS_WIDTH = 3072;
 const CANVAS_HEIGHT = 1280;
 
-/** Capsules per scene layer: index 0 = drawn first (back), index 1 = on top (front). */
-const CAPSULES_PER_LAYER = [18, 10];
+/** Back layer drawn first, front on top (parallax). */
+const NUM_SCENE_LAYERS = 2;
+
+/** Same colors as CAPSULE_SHELL_PALETTE in capsuleComponent.js (different name: no duplicate const in global scope). */
+const SKETCH_SHELL_PALETTE = ["#76A8C8", "#DAC58E", "#C98175", "#9ABB76"];
+
+/**
+ * Filenames to queue in preload (loadImage runs before JSON is parsed).
+ * Must match `Object.keys(meta.json).sort()` — keep in sync when adding pets.
+ * (Default string sort: `Lovebert. png` before `dog-1.png`.)
+ */
+const GACHA_ANIMAL_FILES_PRELOAD = [
+  "Lovebert.png",
+  "Avon.png",
+  "Duchess.png",
+  "Winky.png",
+  "Katherine.png",
+  "Big Foot.png",
+  "Smokey.png",
+  "Chanel.png",
+  "Oreo.png",
+  "Georgia.png",
+  "Lucky.png",
+  "Marty.png",
+  "Rickie.png",
+  "Wade.png",
+  "Bonita.png",
+  "St. Bernard.png",
+  "Groot.png",
+  "Bernard.png",
+  "Nyla.png",
+  "Queso.png",
+  "Slim Jim.png",
+  "Toph.png",
+  "Drako.png",
+];
 
 /** Same width for every capsule; height follows capsule art aspect ratio. */
 const CAPSULE_DISPLAY_WIDTH = 420;
 /** Hero (focused) capsule scales up toward this multiplier at center. */
 const SEQ_HERO_SCALE_TARGET = 1.22;
-
-/** Two independent worlds: each gets its own random layout, colors, physics. */
-const NUM_SCENE_LAYERS = CAPSULES_PER_LAYER.length;
 
 /** Movement speed scale (pixels per frame at ~60fps). */
 const SPEED_MIN = 2.2;
@@ -108,9 +139,9 @@ let doneRevealStartMs = null;
 /** `millis()` when post-reveal phase started; hero slides + text reveals. */
 let postRevealStartMs = null;
 let postRevealAnimalName = "Biscuit";
-/** Subline under “Meet …”; from meta.json or GACHA_COPY fallback. */
+/** Labeled detail lines under “Meet …”; built from meta.json tags or GACHA_COPY fallback. */
 let postRevealAnimalDescription = "";
-/** Footer line; from meta.json `location` or GACHA_COPY.footer fallback. */
+/** Deprecated split footer; kept for broadcast shape (always cleared). */
 let postRevealAnimalLocation = "";
 
 /** @type {BroadcastChannel | null} */
@@ -169,6 +200,7 @@ function postGachaStateNow() {
           animalName: postRevealAnimalName,
           animalDescription: postRevealAnimalDescription,
           animalLocation: postRevealAnimalLocation,
+          animalDetailRows: animalDetailRowsForIndex(animalIdx),
           animalIndex: animalIdx,
           shellColor: shellCol,
         }
@@ -241,6 +273,23 @@ function animalMetaObject() {
   return o && typeof o === "object" && !Array.isArray(o) ? o : {};
 }
 
+function sortedAnimalFilenamesFromMeta(metaObj) {
+  if (!metaObj || typeof metaObj !== "object" || Array.isArray(metaObj)) {
+    return [];
+  }
+  return Object.keys(metaObj).sort();
+}
+
+function arraysMatchInOrder(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 function animalFilenameForIndex(animalIndex) {
   const files =
     typeof window !== "undefined" && Array.isArray(window.GACHA_ANIMAL_FILES)
@@ -284,20 +333,33 @@ function animalNameForIndex(animalIndex) {
   return animalNameFromFilename(fn) || "friend";
 }
 
-function animalDescriptionForIndex(animalIndex) {
+const ANIMAL_DETAIL_FIELD_LABELS = [
+  ["looksLike", "Looks Like"],
+  ["gender", "Gender"],
+  ["estimatedAge", "Estimated Age"],
+  ["size", "Size"],
+  ["weight", "Weight"],
+  ["location", "Location"],
+];
+
+function animalDetailRowsForIndex(animalIndex) {
   const row = animalMetaForIndex(animalIndex);
-  if (row && typeof row.description === "string" && row.description.trim()) {
-    return row.description.trim();
+  if (!row || typeof row !== "object") return [];
+  /** @type {{ label: string; value: string }[]} */
+  const out = [];
+  for (const [key, label] of ANIMAL_DETAIL_FIELD_LABELS) {
+    const v = row[key];
+    if (v != null && String(v).trim()) {
+      out.push({ label, value: String(v).trim() });
+    }
   }
-  return POST_REVEAL_SUBLINE;
+  return out;
 }
 
-function animalLocationForIndex(animalIndex) {
-  const row = animalMetaForIndex(animalIndex);
-  if (row && typeof row.location === "string" && row.location.trim()) {
-    return row.location.trim();
-  }
-  return POST_REVEAL_FOOTER;
+function animalDetailsTextForIndex(animalIndex) {
+  const rows = animalDetailRowsForIndex(animalIndex);
+  if (rows.length === 0) return POST_REVEAL_SUBLINE;
+  return rows.map((r) => `${r.label}: ${r.value}`).join("\n");
 }
 
 /** Current hero dome rotation (deg) for draw; 0 when closed, MORPH_DOME_OPEN_MAX_DEG when fully open. */
@@ -331,12 +393,12 @@ const SEQ_FOCUS_ANGLE_K = 0.046;
 const SEQ_FOCUS_SCALE_K = 0.042;
 
 function preload() {
-  const metaRaw = loadJSON("assets/animals/meta.json");
+  const metaRef = loadJSON("assets/animals/meta.json");
   if (typeof window !== "undefined") {
-    window.GACHA_ANIMAL_META =
-      metaRaw && typeof metaRaw === "object" && !Array.isArray(metaRaw)
-        ? metaRaw
-        : {};
+    window.GACHA_ANIMAL_META = metaRef;
+    const sortedFiles = sortedAnimalFilenamesFromMeta(metaRef);
+    window.GACHA_ANIMAL_FILES =
+      sortedFiles.length > 0 ? sortedFiles : GACHA_ANIMAL_FILES_PRELOAD.slice();
   }
   capsule = createCapsuleComponent();
   capsule.preload();
@@ -389,6 +451,19 @@ function updateAnimalHops(instances) {
   }
 }
 
+/** Split n animals across layers: early layers get ceil(remaining / layersLeft) each. */
+function capsuleCountsPerLayer(n, numLayers) {
+  const counts = [];
+  let remaining = n;
+  for (let L = 0; L < numLayers; L++) {
+    const layersLeft = numLayers - L;
+    const c = Math.ceil(remaining / layersLeft);
+    counts.push(c);
+    remaining -= c;
+  }
+  return counts;
+}
+
 function layoutCapsules() {
   capsuleLayers = [];
   const n = capsule.getAnimalCount();
@@ -396,10 +471,12 @@ function layoutCapsules() {
 
   const r = collisionRadius;
   const pad = r + 8;
+  const counts = capsuleCountsPerLayer(n, NUM_SCENE_LAYERS);
+  let nextAnimalIndex = 0;
 
   for (let L = 0; L < NUM_SCENE_LAYERS; L++) {
     const instances = [];
-    const count = CAPSULES_PER_LAYER[L];
+    const count = counts[L];
     for (let i = 0; i < count; i++) {
       let x, y;
       let tries = 0;
@@ -417,8 +494,8 @@ function layoutCapsules() {
         vy,
         angle: random(TWO_PI),
         spin: random(SPIN_MIN, SPIN_MAX),
-        animalIndex: floor(random(n)),
-        shellColor: random(CAPSULE_SHELL_PALETTE),
+        animalIndex: nextAnimalIndex++,
+        shellColor: random(SKETCH_SHELL_PALETTE),
         hopFrame: 0,
         nextHopFrame: floor(random(90, 240)),
         alpha: 255,
@@ -540,14 +617,21 @@ function advanceSequencePhase() {
     doneRevealStartMs = null;
     postRevealStartMs = null;
     seqHeroScaleT = 0;
-    seqHeroLayer = NUM_SCENE_LAYERS - 1;
-    for (let L = NUM_SCENE_LAYERS - 1; L >= 0; L--) {
-      if (capsuleLayers[L].length > 0) {
-        seqHeroLayer = L;
-        break;
+    const heroCandidates = [];
+    for (let L = 0; L < NUM_SCENE_LAYERS; L++) {
+      const layer = capsuleLayers[L] || [];
+      for (let i = 0; i < layer.length; i++) {
+        heroCandidates.push({ L, i });
       }
     }
-    seqHeroIndex = floor(random(capsuleLayers[seqHeroLayer].length));
+    if (heroCandidates.length > 0) {
+      const pick = heroCandidates[floor(random(heroCandidates.length))];
+      seqHeroLayer = pick.L;
+      seqHeroIndex = pick.i;
+    } else {
+      seqHeroLayer = 0;
+      seqHeroIndex = 0;
+    }
     initScatterTargets();
     seqScatterSnapped = false;
     seqPhase = "scatterFocus";
@@ -589,8 +673,8 @@ function skipSequencePhase() {
     postRevealStartMs = millis();
     const h = capsuleLayers[seqHeroLayer][seqHeroIndex];
     postRevealAnimalName = animalNameForIndex(h.animalIndex);
-    postRevealAnimalDescription = animalDescriptionForIndex(h.animalIndex);
-    postRevealAnimalLocation = animalLocationForIndex(h.animalIndex);
+    postRevealAnimalDescription = animalDetailsTextForIndex(h.animalIndex);
+    postRevealAnimalLocation = "";
   }
 }
 
@@ -652,8 +736,8 @@ function updateSequenceAnimation() {
       doneRevealStartMs = millis();
       postRevealStartMs = millis();
       postRevealAnimalName = animalNameForIndex(h.animalIndex);
-      postRevealAnimalDescription = animalDescriptionForIndex(h.animalIndex);
-      postRevealAnimalLocation = animalLocationForIndex(h.animalIndex);
+      postRevealAnimalDescription = animalDetailsTextForIndex(h.animalIndex);
+      postRevealAnimalLocation = "";
     }
   } else if (seqPhase === "postReveal") {
     const h = capsuleLayers[seqHeroLayer][seqHeroIndex];
@@ -683,6 +767,18 @@ function circleOverlapsPlaced(x, y, r, upToIndex, instances) {
 }
 
 function setup() {
+  if (typeof window !== "undefined" && window.GACHA_ANIMAL_META) {
+    const meta = window.GACHA_ANIMAL_META;
+    const sorted = sortedAnimalFilenamesFromMeta(meta);
+    const files = Array.isArray(window.GACHA_ANIMAL_FILES)
+      ? window.GACHA_ANIMAL_FILES
+      : [];
+    if (sorted.length > 0 && files.length > 0 && !arraysMatchInOrder(files, sorted)) {
+      console.warn(
+        "[gacha] Animal file order mismatch between preload and meta keys; image/name pairing may be incorrect.",
+      );
+    }
+  }
   const c = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
   c.parent("sketch-holder");
   const pd = pixelDensity();
@@ -1045,8 +1141,16 @@ function drawPostRevealPanel() {
   textFont(CENTER_BOX_FONT_FAMILY);
   textAlign(LEFT, TOP);
 
+  const h = capsuleLayers[seqHeroLayer][seqHeroIndex];
+  const detailRows = animalDetailRowsForIndex(h.animalIndex);
+  const shellHex =
+    h.shellColor && String(h.shellColor).trim()
+      ? String(h.shellColor).trim()
+      : SKETCH_SHELL_PALETTE[0];
+  const valueCol = color(shellHex);
+
   noStroke();
-  fill(255, a);
+  fill(red(valueCol), green(valueCol), blue(valueCol), a);
   textStyle(BOLD);
   textSize(92);
   text(
@@ -1056,24 +1160,34 @@ function drawPostRevealPanel() {
     POST_REVEAL_TEXT_AREA_W,
   );
 
-  textStyle(NORMAL);
-  textSize(40);
-  fill(255, a * 0.92);
-  text(
-    postRevealAnimalDescription || POST_REVEAL_SUBLINE,
-    left + POST_REVEAL_TEXT_PAD_X,
-    top + 118,
-    POST_REVEAL_TEXT_AREA_W,
-  );
+  const detailX = left + POST_REVEAL_TEXT_PAD_X;
+  const detailY0 = top + 118;
+  const lineH = 58;
+  textSize(36);
 
-  textSize(32);
-  fill(255, a * 0.82);
-  text(
-    postRevealAnimalLocation || POST_REVEAL_FOOTER,
-    left + POST_REVEAL_TEXT_PAD_X,
-    top + 190,
-    POST_REVEAL_TEXT_AREA_W,
-  );
+  if (detailRows.length === 0) {
+    textStyle(BOLD);
+    textLeading(lineH);
+    text(
+      postRevealAnimalDescription || POST_REVEAL_SUBLINE,
+      detailX,
+      detailY0,
+      POST_REVEAL_TEXT_AREA_W,
+    );
+  } else {
+    let y = detailY0;
+    for (const r of detailRows) {
+      const labelColon = `${r.label}:`;
+      fill(255, a * 0.92);
+      textStyle(BOLD);
+      text(labelColon, detailX, y);
+      const valueX = detailX + textWidth(labelColon) + 6;
+      fill(red(valueCol), green(valueCol), blue(valueCol), a * 0.92);
+      textStyle(BOLD);
+      text(r.value, valueX, y);
+      y += lineH;
+    }
+  }
 
   ctx.restore();
   pop();

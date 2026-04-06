@@ -352,6 +352,25 @@
         font-weight: 400;
         color: rgba(255, 255, 255, 0.92);
         line-height: 1.45;
+        white-space: pre-line;
+      }
+
+      .reveal-detail-line {
+        display: block;
+        margin-bottom: 0.65em;
+      }
+
+      .reveal-detail-line:last-child {
+        margin-bottom: 0;
+      }
+
+      .reveal-detail-label {
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.92);
+      }
+
+      .reveal-detail-value {
+        font-weight: 700;
       }
 
       .reveal-foot {
@@ -469,11 +488,16 @@
               data && typeof data === "object" && !Array.isArray(data)
                 ? data
                 : {};
+            window.GACHA_ANIMAL_FILES = Object.keys(
+              window.GACHA_ANIMAL_META,
+            ).sort();
           } else {
             window.GACHA_ANIMAL_META = {};
+            window.GACHA_ANIMAL_FILES = [];
           }
         } catch (e) {
           window.GACHA_ANIMAL_META = {};
+          window.GACHA_ANIMAL_FILES = [];
         }
       })();
     </script>
@@ -516,6 +540,24 @@
           return "assets/animals/" + files[i];
         }
 
+        function escapeHtml(s) {
+          return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        }
+
+        /** Hero capsule shell color from sketch (hex); fallback if missing or invalid. */
+        function revealValueColorFromMessage(shellColor) {
+          var c =
+            shellColor != null && String(shellColor).trim()
+              ? String(shellColor).trim()
+              : "";
+          if (/^#[0-9A-Fa-f]{6}$/.test(c)) return c;
+          return "#76A8C8";
+        }
+
         function showState(which) {
           idleEl.hidden = which !== "idle";
           waitingEl.hidden = which !== "waiting";
@@ -526,24 +568,52 @@
           if (!msg || msg.type !== "STATE" || !msg.phase) return;
           const phase = msg.phase;
           if (phase === "play") {
+            headlineEl.style.color = "";
             showState("idle");
             turnBtn.disabled = false;
             setFooterSlot(false);
           } else if (phase === "scatterFocus" || phase === "morph") {
+            headlineEl.style.color = "";
             showState("waiting");
             setFooterSlot(false);
           } else if (phase === "postReveal") {
             const animal = msg.animalName || "friend";
+            const valueHex = revealValueColorFromMessage(msg.shellColor);
+            headlineEl.style.color = valueHex;
             headlineEl.textContent = "Meet " + animal;
-            subEl.textContent =
-              msg.animalDescription != null &&
-              String(msg.animalDescription).length
+            const detailText =
+              msg.animalDescription != null
                 ? String(msg.animalDescription)
+                : "";
+            const rows = msg.animalDetailRows;
+            if (Array.isArray(rows) && rows.length > 0) {
+              subEl.innerHTML = rows
+                .map(function (r) {
+                  if (!r || typeof r !== "object") return "";
+                  const lab = r.label != null ? String(r.label) : "";
+                  const val = r.value != null ? String(r.value) : "";
+                  return (
+                    '<div class="reveal-detail-line"><span class="reveal-detail-label">' +
+                    escapeHtml(lab) +
+                    ': </span> <span class="reveal-detail-value" style="color: ' +
+                    valueHex +
+                    '">' +
+                    escapeHtml(val) +
+                    "</span></div>"
+                  );
+                })
+                .filter(Boolean)
+                .join("");
+            } else {
+              subEl.textContent = detailText.length
+                ? detailText
                 : copy.subline || "";
+            }
             footEl.textContent =
-              msg.animalLocation != null && String(msg.animalLocation).length
+              msg.animalLocation != null &&
+              String(msg.animalLocation).trim().length
                 ? String(msg.animalLocation)
-                : copy.footer || "";
+                : "";
             const path = animalAssetPath(msg.animalIndex);
             if (path) {
               revealCharacterImg.hidden = false;
@@ -556,6 +626,7 @@
             showState("reveal");
             setFooterSlot(true);
           } else {
+            headlineEl.style.color = "";
             showState("idle");
             setFooterSlot(false);
           }
