@@ -1,5 +1,9 @@
-const CANVAS_WIDTH = 3072;
-const CANVAS_HEIGHT = 1280;
+const BASE_CANVAS_WIDTH = 3072;
+const BASE_CANVAS_HEIGHT = 1280;
+const RESOLUTION_SCALE_MIN = 0.5;
+const RESOLUTION_SCALE_MAX = 1.5;
+const RESOLUTION_SCALE_STEP = 0.1;
+let renderScale = 1;
 
 /** Back layer drawn first, front on top (parallax). */
 const NUM_SCENE_LAYERS = 2;
@@ -157,6 +161,56 @@ let lastBroadcastShellColor = null;
 let lastBroadcastAnimalDescription = null;
 /** @type {string | null} */
 let lastBroadcastAnimalLocation = null;
+
+function canvasWidthNow() {
+  return BASE_CANVAS_WIDTH;
+}
+
+function canvasHeightNow() {
+  return BASE_CANVAS_HEIGHT;
+}
+
+function recreateSceneBuffers() {
+  const pd = pixelDensity();
+  sceneBuffers = [];
+  for (let L = 0; L < NUM_SCENE_LAYERS; L++) {
+    const g = createGraphics(canvasWidthNow(), canvasHeightNow());
+    g.pixelDensity(pd);
+    sceneBuffers.push(g);
+  }
+}
+
+function dispatchResolutionChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("gacha:resolution-change", {
+      detail: {
+        scale: renderScale,
+        width: canvasWidthNow(),
+        height: canvasHeightNow(),
+        baseWidth: BASE_CANVAS_WIDTH,
+        baseHeight: BASE_CANVAS_HEIGHT,
+      },
+    }),
+  );
+}
+
+function setResolutionScale(nextScale) {
+  const snapped =
+    Math.round(
+      constrain(nextScale, RESOLUTION_SCALE_MIN, RESOLUTION_SCALE_MAX) /
+        RESOLUTION_SCALE_STEP,
+    ) * RESOLUTION_SCALE_STEP;
+  const clamped = constrain(
+    Number(snapped.toFixed(3)),
+    RESOLUTION_SCALE_MIN,
+    RESOLUTION_SCALE_MAX,
+  );
+  if (abs(clamped - renderScale) < 1e-6) return false;
+  renderScale = clamped;
+  dispatchResolutionChange();
+  return true;
+}
 
 function gachaChannelName() {
   return (
@@ -481,8 +535,8 @@ function layoutCapsules() {
       let x, y;
       let tries = 0;
       do {
-        x = random(pad, CANVAS_WIDTH - pad);
-        y = random(pad, CANVAS_HEIGHT - pad);
+        x = random(pad, canvasWidthNow() - pad);
+        y = random(pad, canvasHeightNow() - pad);
         tries++;
       } while (tries < 120 && circleOverlapsPlaced(x, y, r, i, instances));
 
@@ -534,8 +588,8 @@ function isSeqHero(L, i) {
  * lines up with the true canvas center (parallax offset per layer).
  */
 function heroBufferCenterTarget() {
-  const cx = CANVAS_WIDTH / 2;
-  const cy = CANVAS_HEIGHT / 2;
+  const cx = canvasWidthNow() / 2;
+  const cy = canvasHeightNow() / 2;
   const L = seqHeroLayer;
   return {
     x: cx - L * SCREEN_LAYER_OFFSET_X,
@@ -556,8 +610,8 @@ function lerpAngleToward(a, target, t) {
 }
 
 function initScatterTargets() {
-  const cx = CANVAS_WIDTH / 2;
-  const cy = CANVAS_HEIGHT / 2;
+  const cx = canvasWidthNow() / 2;
+  const cy = canvasHeightNow() / 2;
   const pushDist = 2800;
   for (let L = 0; L < NUM_SCENE_LAYERS; L++) {
     for (let i = 0; i < capsuleLayers[L].length; i++) {
@@ -808,18 +862,13 @@ function setup() {
       );
     }
   }
-  const c = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+  const c = createCanvas(canvasWidthNow(), canvasHeightNow());
   c.parent("sketch-holder");
-  const pd = pixelDensity();
-  sceneBuffers = [];
-  for (let L = 0; L < NUM_SCENE_LAYERS; L++) {
-    const g = createGraphics(CANVAS_WIDTH, CANVAS_HEIGHT);
-    g.pixelDensity(pd);
-    sceneBuffers.push(g);
-  }
+  recreateSceneBuffers();
   const m = computeCapsuleCollisionSize();
   collisionRadius = m.collisionRadius;
   layoutCapsules();
+  dispatchResolutionChange();
   const btn = document.getElementById("seq-next-btn");
   if (btn) {
     btn.addEventListener("click", () => {
@@ -836,6 +885,13 @@ function setup() {
       resetAfterReveal: resetGachaAfterRevealFromGesture,
       getPhase: currentGachaPhase,
       getRevealShellColor: currentRevealShellColor,
+      getResolutionInfo: () => ({
+        scale: renderScale,
+        width: canvasWidthNow(),
+        height: canvasHeightNow(),
+        baseWidth: BASE_CANVAS_WIDTH,
+        baseHeight: BASE_CANVAS_HEIGHT,
+      }),
     };
   }
   if (typeof BroadcastChannel !== "undefined") {
@@ -920,8 +976,8 @@ function drawCapsuleSceneTo(pg, layerIndex) {
 
 function updatePhysicsForLayer(instances) {
   const r = collisionRadius;
-  const W = CANVAS_WIDTH;
-  const H = CANVAS_HEIGHT;
+  const W = canvasWidthNow();
+  const H = canvasHeightNow();
 
   for (const inst of instances) {
     inst.x += inst.vx;
@@ -977,8 +1033,8 @@ function centerBoxBounds() {
   const contentH = CENTER_BOX_COUNT_SIZE + CENTER_BOX_LINE_GAP + bodyH;
   const boxW = contentW + CENTER_BOX_PAD_X * 2;
   const boxH = contentH + CENTER_BOX_PAD_Y * 2;
-  const cx = CANVAS_WIDTH * 0.5;
-  const cy = CANVAS_HEIGHT * 0.5;
+  const cx = canvasWidthNow() * 0.5;
+  const cy = canvasHeightNow() * 0.5;
   return {
     left: cx - boxW * 0.5,
     right: cx + boxW * 0.5,
@@ -1162,8 +1218,8 @@ function drawPostRevealPanel() {
   const e = easeOutCubic(t);
   const a = 255 * e;
 
-  const cx = CANVAS_WIDTH * 0.5;
-  const cy = CANVAS_HEIGHT * 0.5;
+  const cx = canvasWidthNow() * 0.5;
+  const cy = canvasHeightNow() * 0.5;
   const left = cx - 10 + (1 - e) * POST_REVEAL_TEXT_SHIFT_X;
   const top = cy - 210;
 
@@ -1266,9 +1322,17 @@ function draw() {
     textAlign(LEFT, TOP);
     text(
       "R reset  ·  D debug  ·  N start/restore or skip  ·  " +
+        "-/_ and =/+ resolution  ·  " +
         (debugCollision ? "colliders ON" : "colliders OFF") +
         "  ·  phase: " +
-        seqPhase,
+        seqPhase +
+        "  ·  " +
+        canvasWidthNow() +
+        "x" +
+        canvasHeightNow() +
+        " (" +
+        renderScale.toFixed(2) +
+        "x)",
       32,
       32,
     );
@@ -1295,5 +1359,9 @@ function keyPressed() {
     } else {
       skipSequencePhase();
     }
+  } else if (k === "-" || k === "_") {
+    setResolutionScale(renderScale - RESOLUTION_SCALE_STEP);
+  } else if (k === "=" || k === "+") {
+    setResolutionScale(renderScale + RESOLUTION_SCALE_STEP);
   }
 }
