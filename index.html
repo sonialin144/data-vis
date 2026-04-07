@@ -210,16 +210,8 @@
         const body = document.body;
         const toggleBtn = document.getElementById("dev-ui-toggle");
 
-        try {
-          if (window.localStorage.getItem(STORAGE_KEY) === "1") {
-            body.classList.add("dev-ui-visible");
-          }
-        } catch (err) {
-          console.warn(
-            "Unable to read dev UI visibility from localStorage:",
-            err,
-          );
-        }
+        // Always start with controls hidden on page load.
+        body.classList.remove("dev-ui-visible");
 
         toggleBtn.addEventListener("click", function () {
           const isVisible = body.classList.toggle("dev-ui-visible");
