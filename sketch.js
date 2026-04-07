@@ -650,7 +650,7 @@ function advanceSequencePhase() {
 }
 
 /**
- * External entrypoint for camera gesture triggers.
+ * External entrypoint for camera image-model triggers (Teachable Machine in index.html).
  * Returns true only when a new pull starts from idle.
  */
 function triggerGachaFromGesture() {

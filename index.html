@@ -42,7 +42,10 @@
       */
       #sketch-holder canvas {
         display: block;
-        width: min(100vw, calc(100vh * var(--canvas-w) / var(--canvas-h))) !important;
+        width: min(
+          100vw,
+          calc(100vh * var(--canvas-w) / var(--canvas-h))
+        ) !important;
         height: min(
           100vh,
           calc(100vw * var(--canvas-h) / var(--canvas-w))
@@ -109,7 +112,11 @@
         background: rgba(0, 0, 0, 0.65);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 8px;
-        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        font:
+          12px/1.4 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
         color: #e8e8e8;
         white-space: pre-line;
       }
@@ -140,9 +147,16 @@
         object-fit: cover;
         transform: scaleX(-1);
       }
+      /* Dev HUD off: hide preview but keep video decoding so TM + gacha pull still run */
       body:not(.dev-ui-visible) #gesture-camera {
-        opacity: 0;
+        right: auto;
+        bottom: auto;
+        left: -320px;
+        top: 0;
+        opacity: 0.01;
         pointer-events: none;
+        z-index: 0;
+        border: none;
       }
 
       #pull-countdown {
@@ -162,16 +176,19 @@
         line-height: 1.15;
         visibility: hidden;
       }
-
     </style>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.7.4/dist/tf.min.js"></script>
     <script defer src="./gachaCopy.js"></script>
     <script defer src="./capsuleComponent.js"></script>
-    <script defer src="./gestureDetector.js"></script>
     <script defer src="./sketch.js"></script>
   </head>
   <body>
-    <button type="button" id="seq-next-btn" title="Start sequence (idle) or restore (done); during run, skip ahead">
+    <button
+      type="button"
+      id="seq-next-btn"
+      title="Start sequence (idle) or restore (done); during run, skip ahead"
+    >
       Next sequence
     </button>
     <button
@@ -181,8 +198,8 @@
       title=""
     ></button>
     <aside id="gesture-overlay" aria-live="polite">
-      <div id="gesture-status">Gesture: not started</div>
-      <button type="button" id="gesture-start-btn">Start camera tracking</button>
+      <div id="gesture-status">Image model: not started</div>
+      <button type="button" id="gesture-start-btn">Start camera</button>
     </aside>
     <div id="pull-countdown" aria-live="polite"></div>
     <video id="gesture-camera" autoplay playsinline muted></video>
@@ -198,7 +215,10 @@
             body.classList.add("dev-ui-visible");
           }
         } catch (err) {
-          console.warn("Unable to read dev UI visibility from localStorage:", err);
+          console.warn(
+            "Unable to read dev UI visibility from localStorage:",
+            err,
+          );
         }
 
         toggleBtn.addEventListener("click", function () {
@@ -212,34 +232,51 @@
       })();
     </script>
     <script type="module">
-      import {
-        FilesetResolver,
-        PoseLandmarker,
-      } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+      const tf = window.tf;
+      if (!tf) {
+        console.error("TensorFlow.js missing — check tf.min.js script tag.");
+      }
+
+      /** Same folder as this page — keep `tm-my-image-model/` next to index.html. */
+      const MODEL_URL = "./tm-my-image-model/model.json";
+      const META_URL = "./tm-my-image-model/metadata.json";
 
       const videoEl = document.getElementById("gesture-camera");
       const statusEl = document.getElementById("gesture-status");
       const startBtn = document.getElementById("gesture-start-btn");
       const countdownEl = document.getElementById("pull-countdown");
-      const detector = new window.ArmCircleDetector();
-      const PROCESS_EVERY_MS = 66; // ~15fps processing
+
+      const PROCESS_EVERY_MS = 120;
       const PULL_COUNTDOWN_MS = 20000;
-      const TRACK_SUSTAIN_MS = 3000;
+      const TRACK_SUSTAIN_MS = 2500;
       const CANVAS_W = 3072;
       const CANVAS_H = 1280;
-      let poseLandmarker = null;
+
+      /** Fire when any class softmax probability is at least this (0–1). */
+      const TRIGGER_CONFIDENCE = 0.75;
+
+      let model = null;
+      let metadata = null;
+      let imageSize = 224;
+      let labels = ["Class 1", "Class 2"];
+      let procCanvas = null;
+      let procCtx = null;
       let lastProcessedMs = 0;
       let rafId = 0;
       let cameraStream = null;
       let pullDeadlineMs = null;
       let trackingStartMs = null;
+      let inferBusy = false;
 
       function setStatus(lines) {
         statusEl.textContent = lines.join("\n");
       }
 
       function computeCanvasScale() {
-        return Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H);
+        return Math.min(
+          window.innerWidth / CANVAS_W,
+          window.innerHeight / CANVAS_H,
+        );
       }
 
       function applyCountdownTypographyScale() {
@@ -273,7 +310,9 @@
               return;
             }
             if (performance.now() - started > maxWaitMs) {
-              reject(new Error("Gesture bridge from sketch.js is not available."));
+              reject(
+                new Error("Gacha bridge from sketch.js is not available."),
+              );
               return;
             }
             window.setTimeout(tick, 100);
@@ -282,23 +321,18 @@
         });
       }
 
-      async function initPoseLandmarker() {
-        if (poseLandmarker) return poseLandmarker;
-        const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm",
-        );
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath:
-              "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
-          },
-          runningMode: "VIDEO",
-          numPoses: 1,
-          minPoseDetectionConfidence: 0.45,
-          minPosePresenceConfidence: 0.45,
-          minTrackingConfidence: 0.45,
-        });
-        return poseLandmarker;
+      async function loadModelAndMeta() {
+        if (model) return;
+        if (!tf) throw new Error("TensorFlow.js not loaded");
+        const metaRes = await fetch(META_URL);
+        metadata = await metaRes.json();
+        model = await tf.loadLayersModel(MODEL_URL);
+        if (metadata.labels && metadata.labels.length) labels = metadata.labels;
+        if (metadata.imageSize) imageSize = metadata.imageSize;
+        procCanvas = document.createElement("canvas");
+        procCanvas.width = imageSize;
+        procCanvas.height = imageSize;
+        procCtx = procCanvas.getContext("2d", { willReadFrequently: true });
       }
 
       function stopLoop() {
@@ -313,7 +347,10 @@
           width: { ideal: 1280 },
           height: { ideal: 720 },
         };
-        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        if (
+          !navigator.mediaDevices ||
+          !navigator.mediaDevices.enumerateDevices
+        ) {
           return { video: base, audio: false };
         }
         try {
@@ -334,113 +371,159 @@
         return { video: base, audio: false };
       }
 
+      /** Mirror horizontally to match on-screen preview (CSS scaleX(-1)). */
+      function drawVideoToProcCanvas() {
+        const w = imageSize;
+        const h = imageSize;
+        procCtx.save();
+        procCtx.translate(w, 0);
+        procCtx.scale(-1, 1);
+        procCtx.drawImage(videoEl, 0, 0, w, h);
+        procCtx.restore();
+      }
+
+      async function predictProbs() {
+        if (!model || !videoEl.videoWidth) return null;
+        drawVideoToProcCanvas();
+        const tensor = tf.browser
+          .fromPixels(procCanvas, 3)
+          .toFloat()
+          .expandDims(0)
+          .div(255);
+        const pred = model.predict(tensor);
+        tensor.dispose();
+        const data = await pred.data();
+        pred.dispose();
+        return Array.from(data);
+      }
+
       function tick(gestureBridge) {
         rafId = requestAnimationFrame(() => tick(gestureBridge));
-        if (!poseLandmarker || !videoEl.videoWidth || !videoEl.videoHeight) return;
+        if (!model || !videoEl.videoWidth || !videoEl.videoHeight) return;
+        if (inferBusy) return;
         const now = performance.now();
         if (now - lastProcessedMs < PROCESS_EVERY_MS) return;
         lastProcessedMs = now;
+        inferBusy = true;
 
-        const result = poseLandmarker.detectForVideo(videoEl, now);
-        const landmarks = result.landmarks && result.landmarks[0] ? result.landmarks[0] : null;
-        detector.updatePose(landmarks, now);
-        const s = detector.getStatus();
+        predictProbs()
+          .then((probs) => {
+            if (!probs || !probs.length) return;
 
-        const phase = gestureBridge.getPhase();
-        let triggered = false;
-        const countdownActive = pullDeadlineMs != null;
-        if (s.tracking) {
-          if (trackingStartMs == null) trackingStartMs = now;
-        } else {
-          trackingStartMs = null;
-        }
-        const trackingSustainMs = trackingStartMs == null ? 0 : now - trackingStartMs;
-        const trackingSustained = trackingSustainMs >= TRACK_SUSTAIN_MS;
-        if (phase === "play" && trackingSustained && !countdownActive) {
-          triggered = gestureBridge.triggerPull();
-          if (triggered) {
-            pullDeadlineMs = now + PULL_COUNTDOWN_MS;
-            trackingStartMs = null;
-          }
-        }
+            const phase = gestureBridge.getPhase();
+            let triggered = false;
+            const countdownActive = pullDeadlineMs != null;
 
-        let countdownLine = "Countdown: ready";
-        if (pullDeadlineMs != null) {
-          const msLeft = Math.max(0, pullDeadlineMs - now);
-          const secondsLeft = Math.ceil(msLeft / 1000);
-          countdownLine = `Countdown: ${secondsLeft}s`;
-          if (phase === "postReveal") {
-            const revealShellColor = gestureBridge.getRevealShellColor();
-            countdownEl.style.color = revealShellColor || "#fff";
-            countdownEl.textContent = `Reset in ${secondsLeft}s`;
-            countdownEl.style.visibility = "visible";
-          } else {
-            countdownEl.style.visibility = "hidden";
-          }
-          if (msLeft <= 0) {
-            const resetOk = gestureBridge.resetAfterReveal();
-            if (resetOk) {
-              pullDeadlineMs = null;
+            let topIdx = 0;
+            let topP = probs[0] ?? 0;
+            for (let i = 1; i < probs.length; i++) {
+              if (probs[i] > topP) {
+                topP = probs[i];
+                topIdx = i;
+              }
             }
-          }
-        } else {
-          countdownEl.style.visibility = "hidden";
-        }
+            const high = probs.some((p) => p >= TRIGGER_CONFIDENCE);
 
-        setStatus([
-          `Gesture: ${triggered ? "TRIGGERED" : "tracking"}`,
-          `Phase: ${phase}`,
-          `Pose tracked: ${s.tracking ? "yes" : "no"}`,
-          `Track hold: ${Math.max(0, TRACK_SUSTAIN_MS - Math.floor(trackingSustainMs))}ms`,
-          `L coverage: ${s.leftCoverage.toFixed(2)} rad`,
-          `R coverage: ${s.rightCoverage.toFixed(2)} rad`,
-          `L radiusVar: ${s.leftRadiusVar.toFixed(2)}`,
-          `R radiusVar: ${s.rightRadiusVar.toFixed(2)}`,
-          `Cooldown: ${Math.ceil(s.cooldownMs)}ms`,
-          countdownLine,
-        ]);
+            if (high) {
+              if (trackingStartMs == null) trackingStartMs = now;
+            } else {
+              trackingStartMs = null;
+            }
+            const trackingSustainMs =
+              trackingStartMs == null ? 0 : now - trackingStartMs;
+            const trackingSustained = trackingSustainMs >= TRACK_SUSTAIN_MS;
+
+            if (phase === "play" && trackingSustained && !countdownActive) {
+              triggered = gestureBridge.triggerPull();
+              if (triggered) {
+                pullDeadlineMs = now + PULL_COUNTDOWN_MS;
+                trackingStartMs = null;
+              }
+            }
+
+            let countdownLine = "Countdown: ready";
+            if (pullDeadlineMs != null) {
+              const msLeft = Math.max(0, pullDeadlineMs - now);
+              const secondsLeft = Math.ceil(msLeft / 1000);
+              countdownLine = `Countdown: ${secondsLeft}s`;
+              if (phase === "postReveal") {
+                const revealShellColor = gestureBridge.getRevealShellColor();
+                countdownEl.style.color = revealShellColor || "#fff";
+                countdownEl.textContent = `Reset in ${secondsLeft}s`;
+                countdownEl.style.visibility = "visible";
+              } else {
+                countdownEl.style.visibility = "hidden";
+              }
+              if (msLeft <= 0) {
+                const resetOk = gestureBridge.resetAfterReveal();
+                if (resetOk) pullDeadlineMs = null;
+              }
+            } else {
+              countdownEl.style.visibility = "hidden";
+            }
+
+            const labelStr = labels
+              .map((l, i) => `${l}: ${(probs[i] * 100).toFixed(0)}%`)
+              .join("  ");
+
+            setStatus([
+              `Image: ${triggered ? "TRIGGERED" : "detecting"}`,
+              `Phase: ${phase}`,
+              `Trigger: any class ≥ ${(TRIGGER_CONFIDENCE * 100).toFixed(0)}%`,
+              `Top: ${labels[topIdx] ?? "?"} ${(topP * 100).toFixed(1)}%  lock: ${trackingSustained ? "yes" : "no"}`,
+              labelStr,
+              `Hold ${Math.max(0, TRACK_SUSTAIN_MS - Math.floor(trackingSustainMs))}ms`,
+              countdownLine,
+            ]);
+          })
+          .finally(() => {
+            inferBusy = false;
+          });
       }
 
-      async function startGestureRuntime() {
+      async function startImageRuntime() {
         if (cameraStream) {
-          setStatus(["Gesture: active", "Camera already running"]);
+          setStatus(["Image model: active", "Camera already running"]);
           return;
         }
         startBtn.disabled = true;
         startBtn.textContent = "Starting...";
         try {
           const gestureBridge = await ensureBridgeReady();
-          setStatus(["Gesture: loading pose model..."]);
-          await initPoseLandmarker();
-          setStatus(["Gesture: requesting camera..."]);
+          setStatus(["Image model: loading TensorFlow + weights..."]);
+          await loadModelAndMeta();
+          setStatus(["Image model: requesting camera..."]);
           const constraints = await buildLaptopCameraConstraints();
           cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
           videoEl.srcObject = cameraStream;
           await videoEl.play();
-          startBtn.textContent = "Camera tracking active";
-          setStatus(["Gesture: active", "Phase: " + gestureBridge.getPhase()]);
+          startBtn.textContent = "Camera active";
+          setStatus([
+            "Image model: active",
+            "Phase: " + gestureBridge.getPhase(),
+          ]);
           tick(gestureBridge);
         } catch (err) {
           startBtn.disabled = false;
-          startBtn.textContent = "Retry camera tracking";
-          setStatus(["Gesture: failed to start", String(err && err.message ? err.message : err)]);
+          startBtn.textContent = "Retry";
+          setStatus([
+            "Image model: failed",
+            String(err && err.message ? err.message : err),
+          ]);
         }
       }
 
-      startBtn.addEventListener("click", startGestureRuntime);
+      startBtn.addEventListener("click", startImageRuntime);
       window.addEventListener("resize", applyCountdownTypographyScale);
       window.addEventListener("load", () => {
-        // Auto-start on page load so operators do not need hidden dev controls.
         applyCountdownTypographyScale();
-        startGestureRuntime();
+        startImageRuntime();
       });
       window.addEventListener("beforeunload", () => {
         stopLoop();
-        if (cameraStream) {
-          cameraStream.getTracks().forEach((t) => t.stop());
-        }
+        if (cameraStream) cameraStream.getTracks().forEach((t) => t.stop());
       });
-      setStatus(["Gesture: idle", "Press Start camera tracking"]);
+      setStatus(["Image model: idle", "Press Start camera"]);
     </script>
   </body>
 </html>
