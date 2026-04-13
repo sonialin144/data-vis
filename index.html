@@ -4,14 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Handpose Pet Prototype</title>
-    <!-- GLTFLoader imports bare "three"; browsers need this map (not Node resolution). -->
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
-        }
-      }
-    </script>
     <style>
       :root {
         color-scheme: light dark;
@@ -29,24 +21,12 @@
         z-index: 3;
         pointer-events: none;
       }
-      /* p5 sits under the WebGL layer so the GLTF shows through GL clear (alpha 0). */
       #canvas-holder > canvas {
         position: absolute;
         inset: 0;
         display: block;
-        z-index: 1;
-        background-color: transparent;
-      }
-      #dog-webgl-layer {
-        position: absolute;
-        inset: 0;
         z-index: 2;
-        pointer-events: none;
-      }
-      #dog-webgl-layer canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
+        background-color: transparent;
       }
       #camera-layer {
         position: absolute;
@@ -121,9 +101,7 @@
     <div id="interface-root">
       <div id="camera-layer"></div>
       <div class="grass-strip"></div>
-      <div id="canvas-holder">
-        <div id="dog-webgl-layer" aria-hidden="true"></div>
-      </div>
+      <div id="canvas-holder"></div>
     </div>
     <script src="./handpose-prototype.js"></script>
   </body>
