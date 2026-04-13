@@ -18,6 +18,13 @@ let modelReady = false;
 let hasToy = false;
 let toyPos = { x: 0, y: 0 };
 let toyDiameter = 56;
+const interfaceWidth = 3072;
+const interfaceHeight = 1280;
+const scaleStorageKey = "handposePrototypeInterfaceScale";
+const scaleStep = 0.05;
+const minInterfaceScale = 0.2;
+const maxInterfaceScale = 2.5;
+let interfaceScale = 1;
 const chaseSpeed = 8;
 const DEBUG_HAND = false;
 const spriteFrameSize = 48;
@@ -48,8 +55,10 @@ function preload() {
 }
 
 function setup() {
-  const canvas = createCanvas(windowWidth, windowHeight);
+  const canvas = createCanvas(interfaceWidth, interfaceHeight);
   canvas.parent("canvas-holder");
+  applySavedScale();
+  applyInterfaceScale();
   noSmooth();
   clear();
 
@@ -67,8 +76,8 @@ function setup() {
     },
   );
   video.parent("camera-layer");
-  video.style("width", "100vw");
-  video.style("height", "100vh");
+  video.style("width", `${interfaceWidth}px`);
+  video.style("height", `${interfaceHeight}px`);
   video.style("object-fit", "cover");
   video.style("transform", "scaleX(-1)");
   video.style("transform-origin", "center center");
@@ -107,14 +116,24 @@ function draw() {
     drawSprites();
   }
 
-  drawOverlayText();
 }
 
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
+  applyInterfaceScale();
   if (petSprite) {
     petSprite.position.x = constrain(petSprite.position.x, 20, width - 20);
     petSprite.position.y = constrain(petSprite.position.y, 20, height - 20);
+  }
+}
+
+function keyPressed() {
+  if (keyCode === UP_ARROW) {
+    setInterfaceScale(interfaceScale + scaleStep);
+    return false;
+  }
+  if (keyCode === DOWN_ARROW) {
+    setInterfaceScale(interfaceScale - scaleStep);
+    return false;
   }
 }
 
@@ -553,4 +572,29 @@ function setStatus(message) {
   if (statusEl) {
     statusEl.textContent = message;
   }
+}
+
+function applySavedScale() {
+  const savedScaleRaw = window.localStorage.getItem(scaleStorageKey);
+  if (!savedScaleRaw) {
+    return;
+  }
+  const parsedScale = Number.parseFloat(savedScaleRaw);
+  if (Number.isFinite(parsedScale)) {
+    interfaceScale = constrain(parsedScale, minInterfaceScale, maxInterfaceScale);
+  }
+}
+
+function setInterfaceScale(nextScale) {
+  interfaceScale = constrain(nextScale, minInterfaceScale, maxInterfaceScale);
+  window.localStorage.setItem(scaleStorageKey, interfaceScale.toFixed(2));
+  applyInterfaceScale();
+}
+
+function applyInterfaceScale() {
+  const interfaceRoot = document.getElementById("interface-root");
+  if (!interfaceRoot) {
+    return;
+  }
+  interfaceRoot.style.transform = `scale(${interfaceScale})`;
 }

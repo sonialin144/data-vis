@@ -16,16 +16,25 @@
         overflow: hidden;
       }
       #canvas-holder {
-        position: fixed;
+        position: absolute;
         inset: 0;
         z-index: 2;
         pointer-events: none;
       }
       #camera-layer {
-        position: fixed;
+        position: absolute;
         inset: 0;
         z-index: 1;
         background: #000;
+      }
+      #interface-root {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 3072px;
+        height: 1280px;
+        transform-origin: top left;
+        overflow: hidden;
       }
       .hud {
         position: fixed;
@@ -38,6 +47,7 @@
         padding: 10px 12px;
         max-width: min(90vw, 420px);
         backdrop-filter: blur(3px);
+        display: none;
       }
       h1 {
         margin: 0 0 0.35rem;
@@ -65,8 +75,10 @@
       <p id="status">Requesting webcam access...</p>
       <p class="hint">Show your hand to attach a toy. A pet will run to it.</p>
     </div>
-    <div id="camera-layer"></div>
-    <div id="canvas-holder"></div>
+    <div id="interface-root">
+      <div id="camera-layer"></div>
+      <div id="canvas-holder"></div>
+    </div>
     <script src="./handpose-prototype.js"></script>
   </body>
 </html>
