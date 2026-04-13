@@ -2,11 +2,16 @@ let video;
 let handposeModel;
 let predictions = [];
 
-let petType = "dog";
+const PET_SHEETS = [
+  { name: "dog-1", idlePath: "./assets/1 Dog/Idle.png", walkPath: "./assets/1 Dog/Walk.png" },
+  { name: "dog-2", idlePath: "./assets/2 Dog 2/Idle.png", walkPath: "./assets/2 Dog 2/Walk.png" },
+  { name: "cat-1", idlePath: "./assets/3 Cat/Idle.png", walkPath: "./assets/3 Cat/Walk.png" },
+  { name: "cat-2", idlePath: "./assets/4 Cat 2/Idle.png", walkPath: "./assets/4 Cat 2/Walk.png" },
+];
 
 /**
  * One slot per tracked hand: pet + that hand's toy. Index matches filtered hands.
- * @type {Array<{ petSprite: any; wasPetAtToy: boolean; toy: { x: number; y: number; d: number } | null }>}
+ * @type {Array<{ petSprite: any; wasPetAtToy: boolean; toy: { x: number; y: number; d: number } | null; petSheet: (typeof PET_SHEETS)[number]; facingRight: boolean }>}
  */
 let handSlots = [];
 
@@ -16,7 +21,17 @@ let dog3d = null;
 let modelReady = false;
 /** Upper bound passed to ml5 handPose (each hand → ball + dog). */
 const MAX_HANDS = 10;
+const interfaceWidth = 3072;
+const interfaceHeight = 1280;
+const scaleStorageKey = "handposePrototypeInterfaceScale";
+const scaleStep = 0.05;
+const minInterfaceScale = 0.2;
+const maxInterfaceScale = 2.5;
+let interfaceScale = 1;
 const chaseSpeed = 4;
+const petRenderSize = 288;
+const spriteFrameSize = 48;
+const walkFrameThreshold = 0.25;
 const DEBUG_HAND = false;
 const WINKY_BUBBLE_TEXT = "Hi, I'm Winky!";
 /** When pet is this close to the toy (px), Winky's bubble appears. */
@@ -25,12 +40,19 @@ const WINKY_REACH_DISTANCE = 48;
 const TOY_REACH_DISTANCE = 8;
 
 function preload() {
+  for (const sheet of PET_SHEETS) {
+    sheet.idleImage = loadImage(sheet.idlePath);
+    sheet.walkImage = loadImage(sheet.walkPath);
+  }
   return loadDogViewer();
 }
 
 function setup() {
-  const canvas = createCanvas(windowWidth, windowHeight);
+  const canvas = createCanvas(interfaceWidth, interfaceHeight);
   canvas.parent("canvas-holder");
+  applySavedScale();
+  applyInterfaceScale();
+  noSmooth();
   const canvasEl = canvas.elt || document.querySelector("#canvas-holder canvas");
   const dogHolder = document.getElementById("dog-webgl-layer");
   if (dogHolder && canvasEl && canvasEl.parentElement === dogHolder.parentElement) {
@@ -55,8 +77,8 @@ function setup() {
     },
   );
   video.parent("camera-layer");
-  video.style("width", "100vw");
-  video.style("height", "100vh");
+  video.style("width", `${interfaceWidth}px`);
+  video.style("height", `${interfaceHeight}px`);
   video.style("object-fit", "cover");
   video.style("transform", "scaleX(-1)");
   video.style("transform-origin", "center center");
@@ -106,7 +128,7 @@ function draw() {
 }
 
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
+  applyInterfaceScale();
   for (const slot of handSlots) {
     const s = slot.petSprite;
     if (s && s.position) {
@@ -116,6 +138,17 @@ function windowResized() {
   }
   if (dog3d) {
     dog3d.resize();
+  }
+}
+
+function keyPressed() {
+  if (keyCode === UP_ARROW) {
+    setInterfaceScale(interfaceScale + scaleStep);
+    return false;
+  }
+  if (keyCode === DOWN_ARROW) {
+    setInterfaceScale(interfaceScale - scaleStep);
+    return false;
   }
 }
 
@@ -152,7 +185,13 @@ function ensureHandSlots(n) {
       if (dog3d && typeof petSprite.visible !== "undefined") {
         petSprite.visible = false;
       }
-      handSlots.push({ petSprite, wasPetAtToy: false, toy: null });
+      handSlots.push({
+        petSprite,
+        wasPetAtToy: false,
+        toy: null,
+        petSheet: random(PET_SHEETS),
+        facingRight: true,
+      });
     }
     while (handSlots.length > n) {
       const slot = handSlots.pop();
@@ -172,6 +211,8 @@ function ensureHandSlots(n) {
         },
         wasPetAtToy: false,
         toy: null,
+        petSheet: random(PET_SHEETS),
+        facingRight: true,
       });
     }
     while (handSlots.length > n) {
@@ -314,6 +355,9 @@ function updatePetBehavior() {
       dir.normalize().mult(chaseSpeed);
       petSprite.velocity.x = dir.x;
       petSprite.velocity.y = dir.y;
+      if (abs(dir.x) > 0.05) {
+        slot.facingRight = dir.x > 0;
+      }
     } else {
       petSprite.velocity.x *= 0.8;
       petSprite.velocity.y *= 0.8;
@@ -332,21 +376,63 @@ function updatePetBehavior() {
 
   if (!dog3d) {
     for (const slot of handSlots) {
-      drawPetSpriteShapeAt(slot.petSprite);
+      drawPetSpriteShapeAt(slot);
     }
   }
 }
 
-function drawPetSpriteShapeAt(petSprite) {
+function drawPetSpriteShapeAt(slot) {
+  const petSprite = slot.petSprite;
+  const sheet = slot.petSheet;
   push();
-  noStroke();
-  fill(80, 255, 120);
-  circle(petSprite.position.x, petSprite.position.y, 80);
-  fill(20);
-  textAlign(CENTER, CENTER);
-  textSize(18);
-  text(petType, petSprite.position.x, petSprite.position.y + 1);
+  drawAnimatedPetSprite(
+    petSprite.position.x,
+    petSprite.position.y,
+    petRenderSize,
+    slot.facingRight,
+    petSprite,
+    sheet,
+  );
   pop();
+}
+
+function drawAnimatedPetSprite(centerX, centerY, renderSize, facingRight, petSprite, sheet) {
+  if (!sheet || !sheet.idleImage || !sheet.walkImage) {
+    noStroke();
+    fill(80, 255, 120);
+    circle(centerX, centerY, 80);
+    fill(20);
+    textAlign(CENTER, CENTER);
+    textSize(18);
+    text(sheet?.name ?? "pet", centerX, centerY + 1);
+    return;
+  }
+
+  const speed = sqrt(
+    petSprite.velocity.x * petSprite.velocity.x + petSprite.velocity.y * petSprite.velocity.y,
+  );
+  const isWalking = speed > walkFrameThreshold;
+  const spriteSheet = isWalking ? sheet.walkImage : sheet.idleImage;
+  const frameCount = isWalking ? 6 : 4;
+  const frameIndex = floor(frameCount === 0 ? 0 : frameCount * ((millis() * 0.006) % 1));
+  const sourceX = frameIndex * spriteFrameSize;
+
+  imageMode(CENTER);
+  translate(centerX, centerY);
+  if (!facingRight) {
+    scale(-1, 1);
+  }
+  image(
+    spriteSheet,
+    0,
+    0,
+    renderSize,
+    renderSize,
+    sourceX,
+    0,
+    spriteFrameSize,
+    spriteFrameSize,
+  );
 }
 
 function slotIsCloseToToy(slot) {
@@ -431,7 +517,13 @@ function drawOverlayText() {
   textSize(14);
   textAlign(LEFT, TOP);
   const n = handSlots.length;
-  text(`Pet: ${petType}${n ? ` × ${n}` : ""}`, 12, 10);
+  const label =
+    n === 0
+      ? "—"
+      : n === 1
+        ? handSlots[0].petSheet?.name ?? "pet"
+        : `${n} pets`;
+  text(`Pet: ${label}`, 12, 10);
 }
 
 function drawHandDebug() {
@@ -555,8 +647,8 @@ async function loadDogViewer() {
     );
 
     const scene = new THREE.Scene();
-    const halfW = window.innerWidth / 2;
-    const halfH = window.innerHeight / 2;
+    const halfW = interfaceWidth / 2;
+    const halfH = interfaceHeight / 2;
     const camera = new THREE.OrthographicCamera(
       -halfW,
       halfW,
@@ -576,7 +668,7 @@ async function loadDogViewer() {
     renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = false;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(interfaceWidth, interfaceHeight);
     if ("outputColorSpace" in renderer) {
       renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
@@ -767,20 +859,45 @@ async function loadDogViewer() {
         renderer.render(scene, camera);
       },
       resize() {
-        const hw = window.innerWidth / 2;
-        const hh = window.innerHeight / 2;
+        const hw = interfaceWidth / 2;
+        const hh = interfaceHeight / 2;
         camera.left = -hw;
         camera.right = hw;
         camera.top = hh;
         camera.bottom = -hh;
         camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setSize(interfaceWidth, interfaceHeight);
       },
     };
   } catch (err) {
     console.warn("3D dog failed to load, using fallback shape.", err);
     dog3d = null;
   }
+}
+
+function applySavedScale() {
+  const savedScaleRaw = window.localStorage.getItem(scaleStorageKey);
+  if (!savedScaleRaw) {
+    return;
+  }
+  const parsedScale = Number.parseFloat(savedScaleRaw);
+  if (Number.isFinite(parsedScale)) {
+    interfaceScale = constrain(parsedScale, minInterfaceScale, maxInterfaceScale);
+  }
+}
+
+function setInterfaceScale(nextScale) {
+  interfaceScale = constrain(nextScale, minInterfaceScale, maxInterfaceScale);
+  window.localStorage.setItem(scaleStorageKey, interfaceScale.toFixed(2));
+  applyInterfaceScale();
+}
+
+function applyInterfaceScale() {
+  const interfaceRoot = document.getElementById("interface-root");
+  if (!interfaceRoot) {
+    return;
+  }
+  interfaceRoot.style.transform = `scale(${interfaceScale})`;
 }
 
 function setStatus(message) {
