@@ -18,7 +18,7 @@
       #canvas-holder {
         position: absolute;
         inset: 0;
-        z-index: 2;
+        z-index: 3;
         pointer-events: none;
       }
       #camera-layer {
@@ -26,6 +26,20 @@
         inset: 0;
         z-index: 1;
         background: #000;
+      }
+      .grass-strip {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 260px;
+        z-index: 2;
+        pointer-events: none;
+        background-image: url("./assets/grass-ground.png");
+        background-repeat: repeat-x;
+        background-position: bottom center;
+        background-size: auto 100%;
+        image-rendering: pixelated;
       }
       #interface-root {
         position: fixed;
@@ -77,6 +91,7 @@
     </div>
     <div id="interface-root">
       <div id="camera-layer"></div>
+      <div class="grass-strip"></div>
       <div id="canvas-holder"></div>
     </div>
     <script src="./handpose-prototype.js"></script>
