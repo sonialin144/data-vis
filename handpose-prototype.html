@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Handpose Pet Prototype</title>
+    <!-- GLTFLoader imports bare "three"; browsers need this map (not Node resolution). -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
     <style>
       :root {
         color-scheme: light dark;
@@ -20,6 +28,25 @@
         inset: 0;
         z-index: 2;
         pointer-events: none;
+      }
+      /* p5 sits under the WebGL layer so the GLTF shows through GL clear (alpha 0). */
+      #canvas-holder > canvas {
+        position: absolute;
+        inset: 0;
+        display: block;
+        z-index: 1;
+        background-color: transparent;
+      }
+      #dog-webgl-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+      }
+      #dog-webgl-layer canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
       }
       #camera-layer {
         position: fixed;
@@ -57,16 +84,20 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/p5.play@1.5.0/lib/p5.play.min.js"></script>
-    <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ml5@1.2.1/dist/ml5.min.js"></script>
   </head>
   <body>
     <div class="hud">
       <h1>Handpose Pet Prototype</h1>
       <p id="status">Requesting webcam access...</p>
-      <p class="hint">Show your hand to attach a toy. A pet will run to it.</p>
+      <p class="hint">
+        Each detected hand (up to several at once) gets its own ball and dog.
+      </p>
     </div>
     <div id="camera-layer"></div>
-    <div id="canvas-holder"></div>
+    <div id="canvas-holder">
+      <div id="dog-webgl-layer" aria-hidden="true"></div>
+    </div>
     <script src="./handpose-prototype.js"></script>
   </body>
 </html>
