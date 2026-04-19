@@ -12,9 +12,9 @@ let poseModel;
  * MoveNet keypoint indices we care about.
  * Full list: https://docs.ml5js.org/#/reference/body-pose
  */
-const KP_LEFT_WRIST  = 9;
+const KP_LEFT_WRIST = 9;
 const KP_RIGHT_WRIST = 10;
-const KP_LEFT_ELBOW  = 7;
+const KP_LEFT_ELBOW = 7;
 const KP_RIGHT_ELBOW = 8;
 
 /**
@@ -31,10 +31,26 @@ const MIN_PERSON_CONFIDENCE = 0.15;
 // ---------------------------------------------------------------------------
 
 const PET_SHEETS = [
-  { name: "dog-1", idlePath: "./assets/1 Dog/Idle.png", walkPath: "./assets/1 Dog/Walk.png" },
-  { name: "dog-2", idlePath: "./assets/2 Dog 2/Idle.png", walkPath: "./assets/2 Dog 2/Walk.png" },
-  { name: "cat-1", idlePath: "./assets/3 Cat/Idle.png", walkPath: "./assets/3 Cat/Walk.png" },
-  { name: "cat-2", idlePath: "./assets/4 Cat 2/Idle.png", walkPath: "./assets/4 Cat 2/Walk.png" },
+  {
+    name: "dog-1",
+    idlePath: "./assets/1 Dog/Idle.png",
+    walkPath: "./assets/1 Dog/Walk.png",
+  },
+  {
+    name: "dog-2",
+    idlePath: "./assets/2 Dog 2/Idle.png",
+    walkPath: "./assets/2 Dog 2/Walk.png",
+  },
+  {
+    name: "cat-1",
+    idlePath: "./assets/3 Cat/Idle.png",
+    walkPath: "./assets/3 Cat/Walk.png",
+  },
+  {
+    name: "cat-2",
+    idlePath: "./assets/4 Cat 2/Idle.png",
+    walkPath: "./assets/4 Cat 2/Walk.png",
+  },
 ];
 
 const PET_3D = { name: "dog-3d", kind: "3d" };
@@ -42,8 +58,16 @@ const PET_DOG_VISUAL_OPTIONS = [PET_SHEETS[0], PET_SHEETS[1], PET_3D];
 const PET_CAT_VISUAL_OPTIONS = [PET_SHEETS[2], PET_SHEETS[3]];
 
 const PET_DISPLAY_NAMES = [
-  "Winky", "Cosmo", "Snowball", "Baxter", "Mochi",
-  "Pepper", "Scout", "Noodle", "Biscuit", "Luna",
+  "Winky",
+  "Cosmo",
+  "Snowball",
+  "Baxter",
+  "Mochi",
+  "Pepper",
+  "Scout",
+  "Noodle",
+  "Biscuit",
+  "Luna",
 ];
 
 /**
@@ -74,13 +98,16 @@ const scaleStep = 0.05;
 const minInterfaceScale = 0.2;
 const maxInterfaceScale = 2.5;
 let interfaceScale = 1;
-const chaseSpeed = 4;
+const chaseSpeed = 8;
 const petRenderSize = 288;
 const spriteFrameSize = 48;
 const walkFrameThreshold = 0.25;
 const DEBUG_POSE = false;
 const SPEECH_BUBBLE_REACH_DISTANCE = 48;
 const TOY_REACH_DISTANCE = 8;
+const PET_NEAR_TOY_LOCK_RADIUS = 32;
+const HAND_MOVE_RETARGET_DISTANCE = 32;
+const HAND_MOVE_RETARGET_DELAY_MS = 150;
 
 const TEXT_OVERLAY = 22;
 const TEXT_WAITING = 26;
@@ -107,9 +134,14 @@ function setup() {
   applyInterfaceScale();
   noSmooth();
 
-  const canvasEl = canvas.elt || document.querySelector("#canvas-holder canvas");
+  const canvasEl =
+    canvas.elt || document.querySelector("#canvas-holder canvas");
   const dogHolder = document.getElementById("dog-webgl-layer");
-  if (dogHolder && canvasEl && canvasEl.parentElement === dogHolder.parentElement) {
+  if (
+    dogHolder &&
+    canvasEl &&
+    canvasEl.parentElement === dogHolder.parentElement
+  ) {
     canvasEl.parentElement.appendChild(dogHolder);
   }
   if (canvasEl) canvasEl.style.backgroundColor = "transparent";
@@ -140,13 +172,19 @@ function setup() {
   video.elt.setAttribute("playsinline", "");
   video.elt.muted = true;
   video.elt.onloadedmetadata = () => {
-    console.log("[camera] Resolution:", video.elt.videoWidth, "x", video.elt.videoHeight);
+    console.log(
+      "[camera] Resolution:",
+      video.elt.videoWidth,
+      "x",
+      video.elt.videoHeight,
+    );
     video.elt
       .play()
       .then(() => setStatus("Webcam ready. Loading pose model..."))
       .catch(() => setStatus("Camera blocked. Allow permission and reload."));
   };
-  video.elt.onerror = () => setStatus("Could not access webcam. Check browser permission settings.");
+  video.elt.onerror = () =>
+    setStatus("Could not access webcam. Check browser permission settings.");
 
   setupBodyPose();
 
@@ -188,8 +226,14 @@ function windowResized() {
 }
 
 function keyPressed() {
-  if (keyCode === UP_ARROW) { setInterfaceScale(interfaceScale + scaleStep); return false; }
-  if (keyCode === DOWN_ARROW) { setInterfaceScale(interfaceScale - scaleStep); return false; }
+  if (keyCode === UP_ARROW) {
+    setInterfaceScale(interfaceScale + scaleStep);
+    return false;
+  }
+  if (keyCode === DOWN_ARROW) {
+    setInterfaceScale(interfaceScale - scaleStep);
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,12 +291,13 @@ function buildActiveToys() {
   const toys = [];
   for (const pose of rawPoses) {
     // pose.score may not exist in all ml5 versions; fall back to truthy check
-    if (pose.score !== undefined && pose.score < MIN_PERSON_CONFIDENCE) continue;
+    if (pose.score !== undefined && pose.score < MIN_PERSON_CONFIDENCE)
+      continue;
 
     const kps = pose.keypoints;
     if (!kps) continue;
 
-    const leftWrist  = kps[KP_LEFT_WRIST];
+    const leftWrist = kps[KP_LEFT_WRIST];
     const rightWrist = kps[KP_RIGHT_WRIST];
 
     const lt = wristToToy(leftWrist);
@@ -270,21 +315,37 @@ function buildActiveToys() {
 function ensureHandSlots(n) {
   if (typeof createSprite === "function") {
     while (handSlots.length < n) {
-      const petSprite = createSprite(random(80, width - 80), random(80, height - 80), 44, 44);
+      const petSprite = createSprite(
+        random(80, width - 80),
+        random(80, height - 80),
+        44,
+        44,
+      );
       petSprite.maxSpeed = chaseSpeed;
       petSprite.friction = 0.05;
       const petSheet = pickPetVisual();
-      if (dog3d && petSheet?.kind === "3d" && typeof petSprite.visible !== "undefined") {
+      if (
+        dog3d &&
+        petSheet?.kind === "3d" &&
+        typeof petSprite.visible !== "undefined"
+      ) {
         petSprite.visible = false;
       }
       handSlots.push({
-        petSprite, wasPetAtToy: false, toy: null,
-        petSheet, facingRight: true, petDisplayName: random(PET_DISPLAY_NAMES),
+        petSprite,
+        wasPetAtToy: false,
+        toy: null,
+        rawToy: null,
+        toyMoveCandidateStartMs: 0,
+        petSheet,
+        facingRight: true,
+        petDisplayName: random(PET_DISPLAY_NAMES),
       });
     }
     while (handSlots.length > n) {
       const slot = handSlots.pop();
-      if (slot.petSprite && typeof slot.petSprite.remove === "function") slot.petSprite.remove();
+      if (slot.petSprite && typeof slot.petSprite.remove === "function")
+        slot.petSprite.remove();
     }
   } else {
     while (handSlots.length < n) {
@@ -293,8 +354,13 @@ function ensureHandSlots(n) {
           position: { x: random(80, width - 80), y: random(80, height - 80) },
           velocity: { x: 0, y: 0 },
         },
-        wasPetAtToy: false, toy: null,
-        petSheet: pickPetVisual(), facingRight: true, petDisplayName: random(PET_DISPLAY_NAMES),
+        wasPetAtToy: false,
+        toy: null,
+        rawToy: null,
+        toyMoveCandidateStartMs: 0,
+        petSheet: pickPetVisual(),
+        facingRight: true,
+        petDisplayName: random(PET_DISPLAY_NAMES),
       });
     }
     while (handSlots.length > n) handSlots.pop();
@@ -303,7 +369,10 @@ function ensureHandSlots(n) {
 }
 
 function syncHandsAndToys() {
-  if (!modelReady) { ensureHandSlots(0); return; }
+  if (!modelReady) {
+    ensureHandSlots(0);
+    return;
+  }
 
   activeToys = buildActiveToys();
 
@@ -315,13 +384,14 @@ function syncHandsAndToys() {
 
   ensureHandSlots(activeToys.length);
   for (let i = 0; i < activeToys.length; i++) {
-    handSlots[i].toy = activeToys[i];
+    handSlots[i].rawToy = activeToys[i];
   }
 
   const n = activeToys.length;
-  setStatus(n === 1
-    ? "Wrist detected — pet is running to you!"
-    : `${n} wrists detected — ${n} pets!`
+  setStatus(
+    n === 1
+      ? "Wrist detected — pet is running to you!"
+      : `${n} wrists detected — ${n} pets!`,
   );
 }
 
@@ -347,21 +417,60 @@ function updatePetBehavior() {
   for (let si = 0; si < handSlots.length; si++) {
     const slot = handSlots[si];
     const petSprite = slot.petSprite;
-    const toy = slot.toy;
+    const rawToy = slot.rawToy;
 
-    if (!toy) {
+    if (!rawToy) {
+      slot.toy = null;
+      slot.toyMoveCandidateStartMs = 0;
       petSprite.velocity.x *= 0.9;
       petSprite.velocity.y *= 0.9;
       slot.wasPetAtToy = false;
       continue;
     }
 
-    const dir = createVector(toy.x - petSprite.position.x, toy.y - petSprite.position.y);
+    if (!slot.toy) {
+      slot.toy = { ...rawToy };
+      slot.toyMoveCandidateStartMs = 0;
+    } else {
+      const petDistanceToLatchedToy = dist(
+        petSprite.position.x,
+        petSprite.position.y,
+        slot.toy.x,
+        slot.toy.y,
+      );
+      const petIsNearLatchedToy = petDistanceToLatchedToy <= PET_NEAR_TOY_LOCK_RADIUS;
+      const handMoveSinceLatch = dist(rawToy.x, rawToy.y, slot.toy.x, slot.toy.y);
+
+      if (!petIsNearLatchedToy) {
+        slot.toy = { ...rawToy };
+        slot.toyMoveCandidateStartMs = 0;
+      } else if (handMoveSinceLatch >= HAND_MOVE_RETARGET_DISTANCE) {
+        if (!slot.toyMoveCandidateStartMs) {
+          slot.toyMoveCandidateStartMs = millis();
+        }
+        if (millis() - slot.toyMoveCandidateStartMs >= HAND_MOVE_RETARGET_DELAY_MS) {
+          slot.toy = { ...rawToy };
+          slot.toyMoveCandidateStartMs = 0;
+        }
+      } else {
+        slot.toyMoveCandidateStartMs = 0;
+      }
+    }
+
+    const toy = slot.toy;
+
+    const dir = createVector(
+      toy.x - petSprite.position.x,
+      toy.y - petSprite.position.y,
+    );
     const distanceToToy = dir.mag();
     const atToy = distanceToToy <= TOY_REACH_DISTANCE;
 
     if (atToy && !slot.wasPetAtToy) {
-      console.log("[pet] Reached toy", { handSlot: si, distancePx: Math.round(distanceToToy * 10) / 10 });
+      console.log("[pet] Reached toy", {
+        handSlot: si,
+        distancePx: Math.round(distanceToToy * 10) / 10,
+      });
     }
     slot.wasPetAtToy = atToy;
 
@@ -371,8 +480,9 @@ function updatePetBehavior() {
       petSprite.velocity.y = dir.y;
       if (abs(dir.x) > 0.05) slot.facingRight = dir.x > 0;
     } else {
-      petSprite.velocity.x *= 0.8;
-      petSprite.velocity.y *= 0.8;
+      // Hard stop at target to avoid micro-jitter from residual velocity.
+      petSprite.velocity.x = 0;
+      petSprite.velocity.y = 0;
     }
   }
 
@@ -391,17 +501,32 @@ function drawPetSpriteShapeAt(slot) {
   if (slot.petSheet?.kind === "3d") return;
   push();
   drawAnimatedPetSprite(
-    slot.petSprite.position.x, slot.petSprite.position.y,
-    petRenderSize, slot.facingRight, slot.petSprite, slot.petSheet,
+    slot.petSprite.position.x,
+    slot.petSprite.position.y,
+    petRenderSize,
+    slot.facingRight,
+    slot.petSprite,
+    slot.petSheet,
   );
   pop();
 }
 
-function drawAnimatedPetSprite(centerX, centerY, renderSize, facingRight, petSprite, sheet) {
+function drawAnimatedPetSprite(
+  centerX,
+  centerY,
+  renderSize,
+  facingRight,
+  petSprite,
+  sheet,
+) {
   if (sheet?.kind === "3d") return;
   if (!sheet || !sheet.idleImage || !sheet.walkImage) {
-    noStroke(); fill(80, 255, 120); circle(centerX, centerY, 80);
-    fill(20); textAlign(CENTER, CENTER); textSize(TEXT_FALLBACK_PET);
+    noStroke();
+    fill(80, 255, 120);
+    circle(centerX, centerY, 80);
+    fill(20);
+    textAlign(CENTER, CENTER);
+    textSize(TEXT_FALLBACK_PET);
     text(sheet?.name ?? "pet", centerX, centerY + 1);
     return;
   }
@@ -414,15 +539,34 @@ function drawAnimatedPetSprite(centerX, centerY, renderSize, facingRight, petSpr
   imageMode(CENTER);
   translate(centerX, centerY);
   if (!facingRight) scale(-1, 1);
-  image(spriteSheet, 0, 0, renderSize, renderSize, sourceX, 0, spriteFrameSize, spriteFrameSize);
+  image(
+    spriteSheet,
+    0,
+    0,
+    renderSize,
+    renderSize,
+    sourceX,
+    0,
+    spriteFrameSize,
+    spriteFrameSize,
+  );
 }
 
 function slotIsCloseToToy(slot) {
   if (!slot.toy || !slot.petSprite) return false;
-  return dist(slot.petSprite.position.x, slot.petSprite.position.y, slot.toy.x, slot.toy.y) <= SPEECH_BUBBLE_REACH_DISTANCE;
+  return (
+    dist(
+      slot.petSprite.position.x,
+      slot.petSprite.position.y,
+      slot.toy.x,
+      slot.toy.y,
+    ) <= SPEECH_BUBBLE_REACH_DISTANCE
+  );
 }
 
-function petBubbleLine(slot) { return `Hi, I'm ${slot.petDisplayName}!`; }
+function petBubbleLine(slot) {
+  return `Hi, I'm ${slot.petDisplayName}!`;
+}
 
 function drawWinkySpeechBubbleIfAtToy() {
   for (const slot of handSlots) {
@@ -431,11 +575,15 @@ function drawWinkySpeechBubbleIfAtToy() {
 }
 
 function drawWinkySpeechBubbleForPet(slot) {
-  const { position: { x: px, y: py } } = slot.petSprite;
+  const {
+    position: { x: px, y: py },
+  } = slot.petSprite;
   const bubbleText = petBubbleLine(slot);
   push();
-  textSize(TEXT_SPEECH_BUBBLE); textStyle(NORMAL);
-  const padX = 24, padY = 14;
+  textSize(TEXT_SPEECH_BUBBLE);
+  textStyle(NORMAL);
+  const padX = 24,
+    padY = 14;
   const tw = textWidth(bubbleText);
   const bubbleW = tw + padX * 2;
   const bubbleH = max(52, textAscent() + textDescent() + padY * 2);
@@ -443,28 +591,55 @@ function drawWinkySpeechBubbleForPet(slot) {
   const bubbleCx = constrain(px, bubbleW / 2 + 10, width - bubbleW / 2 - 10);
   const bubbleCy = py - lift;
   const bubbleBottom = bubbleCy + bubbleH / 2;
-  noStroke(); fill(255, 255, 255, 245); rectMode(CENTER);
+  noStroke();
+  fill(255, 255, 255, 245);
+  rectMode(CENTER);
   rect(bubbleCx, bubbleCy, bubbleW, bubbleH, 16);
-  stroke(45, 45, 55, 200); strokeWeight(2); noFill();
+  stroke(45, 45, 55, 200);
+  strokeWeight(2);
+  noFill();
   rect(bubbleCx, bubbleCy, bubbleW, bubbleH, 16);
   const tailW = 22;
-  const tailMidX = constrain(px, bubbleCx - bubbleW / 2 + 24, bubbleCx + bubbleW / 2 - 24);
-  fill(255, 255, 255, 245); noStroke();
-  triangle(tailMidX - tailW / 2, bubbleBottom, tailMidX + tailW / 2, bubbleBottom, px, py - 36);
-  stroke(45, 45, 55, 200); strokeWeight(2); noFill();
+  const tailMidX = constrain(
+    px,
+    bubbleCx - bubbleW / 2 + 24,
+    bubbleCx + bubbleW / 2 - 24,
+  );
+  fill(255, 255, 255, 245);
+  noStroke();
+  triangle(
+    tailMidX - tailW / 2,
+    bubbleBottom,
+    tailMidX + tailW / 2,
+    bubbleBottom,
+    px,
+    py - 36,
+  );
+  stroke(45, 45, 55, 200);
+  strokeWeight(2);
+  noFill();
   line(tailMidX - tailW / 2, bubbleBottom, px, py - 36);
   line(tailMidX + tailW / 2, bubbleBottom, px, py - 36);
   line(tailMidX - tailW / 2, bubbleBottom, tailMidX + tailW / 2, bubbleBottom);
-  noStroke(); fill(35, 38, 48); textAlign(CENTER, CENTER);
+  noStroke();
+  fill(35, 38, 48);
+  textAlign(CENTER, CENTER);
   text(bubbleText, bubbleCx, bubbleCy);
   rectMode(CORNER);
   pop();
 }
 
 function drawOverlayText() {
-  fill(255); textSize(TEXT_OVERLAY); textAlign(LEFT, TOP);
+  fill(255);
+  textSize(TEXT_OVERLAY);
+  textAlign(LEFT, TOP);
   const n = handSlots.length;
-  const label = n === 0 ? "—" : n === 1 ? handSlots[0].petSheet?.name ?? "pet" : `${n} pets`;
+  const label =
+    n === 0
+      ? "—"
+      : n === 1
+        ? (handSlots[0].petSheet?.name ?? "pet")
+        : `${n} pets`;
   text(`Pet: ${label}`, 12, 10);
 }
 
@@ -474,7 +649,9 @@ function drawOverlayText() {
  */
 function drawPoseDebug() {
   if (!modelReady || !rawPoses || rawPoses.length === 0) {
-    fill(255, 120, 120); textSize(TEXT_DEBUG); textAlign(LEFT, TOP);
+    fill(255, 120, 120);
+    textSize(TEXT_DEBUG);
+    textAlign(LEFT, TOP);
     text("No pose detected", 12, 36);
     return;
   }
@@ -493,7 +670,8 @@ function drawPoseDebug() {
       const kp = kps[idx];
       if (!kp || kp.confidence < MIN_WRIST_CONFIDENCE) continue;
       const m = mapVideoToCanvas(kp.x, kp.y);
-      noStroke(); fill(255, 80, 80);
+      noStroke();
+      fill(255, 80, 80);
       circle(m.x, m.y, 18);
     }
   }
@@ -509,7 +687,13 @@ function getVideoLayout() {
   const scale = max(width / vw, height / vh);
   const displayW = vw * scale;
   const displayH = vh * scale;
-  return { vw, vh, scale, offsetX: (width - displayW) / 2, offsetY: (height - displayH) / 2 };
+  return {
+    vw,
+    vh,
+    scale,
+    offsetX: (width - displayW) / 2,
+    offsetY: (height - displayH) / 2,
+  };
 }
 
 function mapVideoToCanvas(videoX, videoY) {
@@ -528,7 +712,8 @@ function applySavedScale() {
   const raw = window.localStorage.getItem(scaleStorageKey);
   if (!raw) return;
   const parsed = Number.parseFloat(raw);
-  if (Number.isFinite(parsed)) interfaceScale = constrain(parsed, minInterfaceScale, maxInterfaceScale);
+  if (Number.isFinite(parsed))
+    interfaceScale = constrain(parsed, minInterfaceScale, maxInterfaceScale);
 }
 
 function setInterfaceScale(nextScale) {
@@ -551,32 +736,54 @@ async function loadDogViewer() {
   if (!holder) return;
   try {
     const THREE = await import("three");
-    const { GLTFLoader } = await import("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js");
-    const { clone: cloneSkinnedModel } = await import("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/SkeletonUtils.js");
+    const { GLTFLoader } =
+      await import("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js");
+    const { clone: cloneSkinnedModel } =
+      await import("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/SkeletonUtils.js");
 
     const scene = new THREE.Scene();
-    const halfW = interfaceWidth / 2, halfH = interfaceHeight / 2;
-    const camera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 500);
+    const halfW = interfaceWidth / 2,
+      halfH = interfaceHeight / 2;
+    const camera = new THREE.OrthographicCamera(
+      -halfW,
+      halfW,
+      halfH,
+      -halfH,
+      0.1,
+      500,
+    );
     camera.position.set(0, 0, 100);
     camera.lookAt(0, 0, 0);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      premultipliedAlpha: false,
+    });
     renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = false;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(interfaceWidth, interfaceHeight);
-    if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+    if ("outputColorSpace" in renderer)
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
     holder.appendChild(renderer.domElement);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
     const key = new THREE.DirectionalLight(0xffffff, 0.95);
-    key.position.set(4, 14, 10); scene.add(key);
+    key.position.set(4, 14, 10);
+    scene.add(key);
     const fill = new THREE.DirectionalLight(0xb8c8ff, 0.35);
-    fill.position.set(-8, 6, -6); scene.add(fill);
+    fill.position.set(-8, 6, -6);
+    scene.add(fill);
 
     const loader = new GLTFLoader();
     const gltf = await new Promise((resolve, reject) =>
-      loader.load("./stylized_dog_low_poly/scene.gltf", resolve, undefined, reject)
+      loader.load(
+        "./stylized_dog_low_poly/scene.gltf",
+        resolve,
+        undefined,
+        reject,
+      ),
     );
 
     const templateModel = gltf.scene;
@@ -594,22 +801,31 @@ async function loadDogViewer() {
 
     templateModel.traverse((child) => {
       if (!child.isMesh) return;
-      child.castShadow = false; child.receiveShadow = false;
-      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      child.castShadow = false;
+      child.receiveShadow = false;
+      const mats = Array.isArray(child.material)
+        ? child.material
+        : [child.material];
       for (const mat of mats) {
         if (!mat) continue;
         if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial) {
-          mat.metalness = 0; mat.roughness = 1;
+          mat.metalness = 0;
+          mat.roughness = 1;
           if ("envMapIntensity" in mat) mat.envMapIntensity = 0;
           if (mat.map) {
-            mat.emissiveMap = mat.map; mat.emissive.set(1, 1, 1);
-            mat.emissiveIntensity = 1; mat.color.set(0, 0, 0);
+            mat.emissiveMap = mat.map;
+            mat.emissive.set(1, 1, 1);
+            mat.emissiveIntensity = 1;
+            mat.color.set(0, 0, 0);
           } else {
-            mat.emissive.copy(mat.color); mat.emissiveIntensity = 1; mat.color.set(0, 0, 0);
+            mat.emissive.copy(mat.color);
+            mat.emissiveIntensity = 1;
+            mat.color.set(0, 0, 0);
           }
           mat.needsUpdate = true;
         } else if (mat.emissive && mat.color) {
-          mat.emissive.copy(mat.color); mat.emissiveIntensity = 1;
+          mat.emissive.copy(mat.color);
+          mat.emissiveIntensity = 1;
         }
       }
     });
@@ -619,7 +835,8 @@ async function loadDogViewer() {
     const walkClip = THREE.AnimationClip.findByName(clips, "walk");
     const slotInstances = [];
     const clock = new THREE.Clock();
-    const moveSpeedThreshold = 0.32, fadeSec = 0.24;
+    const moveSpeedThreshold = 0.32,
+      fadeSec = 0.24;
 
     function syncWalkIdleForInstance(inst, speed) {
       const wantWalk = speed > moveSpeedThreshold;
@@ -627,22 +844,45 @@ async function loadDogViewer() {
       inst.animIsWalk = wantWalk;
       const { idleAction, walkAction } = inst;
       if (idleAction && walkAction) {
-        if (wantWalk) { idleAction.fadeOut(fadeSec); walkAction.reset().fadeIn(fadeSec).play(); }
-        else { walkAction.fadeOut(fadeSec); idleAction.reset().fadeIn(fadeSec).play(); }
-      } else if (idleAction && !wantWalk) { idleAction.reset().fadeIn(0.1).play(); }
-      else if (walkAction && wantWalk) { walkAction.reset().fadeIn(0.1).play(); }
+        if (wantWalk) {
+          idleAction.fadeOut(fadeSec);
+          walkAction.reset().fadeIn(fadeSec).play();
+        } else {
+          walkAction.fadeOut(fadeSec);
+          idleAction.reset().fadeIn(fadeSec).play();
+        }
+      } else if (idleAction && !wantWalk) {
+        idleAction.reset().fadeIn(0.1).play();
+      } else if (walkAction && wantWalk) {
+        walkAction.reset().fadeIn(0.1).play();
+      }
     }
 
     function addDogInstance() {
       const cloned = cloneSkinnedModel(templateModel);
       const petRoot = new THREE.Group();
-      scene.add(petRoot); petRoot.add(cloned);
+      scene.add(petRoot);
+      petRoot.add(cloned);
       const mixer = new THREE.AnimationMixer(cloned);
       const idleAction = idleClip ? mixer.clipAction(idleClip) : null;
       const walkAction = walkClip ? mixer.clipAction(walkClip) : null;
-      if (idleAction) { idleAction.loop = THREE.LoopRepeat; idleAction.play(); }
-      if (walkAction) { walkAction.loop = THREE.LoopRepeat; walkAction.stop(); }
-      return { petRoot, model: cloned, mixer, idleAction, walkAction, animIsWalk: false, facingX: 1 };
+      if (idleAction) {
+        idleAction.loop = THREE.LoopRepeat;
+        idleAction.play();
+      }
+      if (walkAction) {
+        walkAction.loop = THREE.LoopRepeat;
+        walkAction.stop();
+      }
+      return {
+        petRoot,
+        model: cloned,
+        mixer,
+        idleAction,
+        walkAction,
+        animIsWalk: false,
+        facingX: 1,
+      };
     }
 
     function removeDogInstance(inst) {
@@ -653,12 +893,16 @@ async function loadDogViewer() {
 
     dog3d = {
       ensureSlotInstances(slots) {
-        while (slotInstances.length > slots.length) removeDogInstance(slotInstances.pop());
+        while (slotInstances.length > slots.length)
+          removeDogInstance(slotInstances.pop());
         while (slotInstances.length < slots.length) slotInstances.push(null);
         for (let i = 0; i < slots.length; i++) {
           const want3d = slots[i].petSheet?.kind === "3d";
           if (want3d && !slotInstances[i]) slotInstances[i] = addDogInstance();
-          else if (!want3d && slotInstances[i]) { removeDogInstance(slotInstances[i]); slotInstances[i] = null; }
+          else if (!want3d && slotInstances[i]) {
+            removeDogInstance(slotInstances[i]);
+            slotInstances[i] = null;
+          }
         }
       },
       update() {
@@ -669,18 +913,29 @@ async function loadDogViewer() {
           const slot = handSlots[i];
           if (!slot?.petSprite) continue;
           inst.mixer.update(dt);
-          const { velocity: { x: vx, y: vy }, position: { x: px, y: py } } = slot.petSprite;
+          const {
+            velocity: { x: vx, y: vy },
+            position: { x: px, y: py },
+          } = slot.petSprite;
           syncWalkIdleForInstance(inst, Math.hypot(vx, vy));
           if (vx > 0.08) inst.facingX = -1;
           else if (vx < -0.08) inst.facingX = 1;
           inst.petRoot.scale.set(inst.facingX, 1, 1);
-          inst.petRoot.position.set(px - interfaceWidth / 2, -(py - interfaceHeight / 2), 0);
+          inst.petRoot.position.set(
+            px - interfaceWidth / 2,
+            -(py - interfaceHeight / 2),
+            0,
+          );
         }
         renderer.render(scene, camera);
       },
       resize() {
-        const hw = interfaceWidth / 2, hh = interfaceHeight / 2;
-        camera.left = -hw; camera.right = hw; camera.top = hh; camera.bottom = -hh;
+        const hw = interfaceWidth / 2,
+          hh = interfaceHeight / 2;
+        camera.left = -hw;
+        camera.right = hw;
+        camera.top = hh;
+        camera.bottom = -hh;
         camera.updateProjectionMatrix();
         renderer.setSize(interfaceWidth, interfaceHeight);
       },
@@ -688,7 +943,9 @@ async function loadDogViewer() {
   } catch (err) {
     console.warn("3D dog failed to load, sprite pets only.", err);
     dog3d = null;
-    setStatus("3D dog failed to load — sprite pets only. See browser console for details.");
+    setStatus(
+      "3D dog failed to load — sprite pets only. See browser console for details.",
+    );
   }
 }
 
