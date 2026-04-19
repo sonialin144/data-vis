@@ -55,19 +55,20 @@
         z-index: 1;
         background: #000;
       }
-      .grass-strip {
+      #spawn-base {
         position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        height: 260px;
+        left: 50%;
+        top: 42%;
+        transform: translate(-50%, -50%);
         z-index: 2;
         pointer-events: none;
-        background-image: url("./assets/grass-ground.png");
-        background-repeat: repeat-x;
-        background-position: bottom center;
-        background-size: auto 100%;
-        image-rendering: pixelated;
+        opacity: 0.98;
+      }
+      #spawn-base img {
+        display: block;
+        width: 1080px;
+        height: auto;
+        user-select: none;
       }
       #interface-root {
         position: fixed;
@@ -121,7 +122,14 @@
     </div>
     <div id="interface-root">
       <div id="camera-layer"></div>
-      <div class="grass-strip"></div>
+      <div id="spawn-base" aria-hidden="true">
+        <img
+          id="spawn-base-image"
+          src="./assets/spawn-home-source.png"
+          alt=""
+          draggable="false"
+        />
+      </div>
       <div id="canvas-holder">
         <div id="dog-webgl-layer" aria-hidden="true"></div>
       </div>

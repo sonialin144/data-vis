@@ -114,6 +114,17 @@ const TEXT_WAITING = 26;
 const TEXT_SPEECH_BUBBLE = 30;
 const TEXT_FALLBACK_PET = 26;
 const TEXT_DEBUG = 22;
+const TEXT_CENTER_INSTRUCTION = 56;
+const TEXT_SHELTER_LABEL = 52;
+const CENTER_INSTRUCTION = "Hold Out Your Hand For A Surprise!";
+const SHELTER_LABEL = "Animal Shelter";
+const SPAWN_HOME_ASSET_PATH = "./assets/spawn-home-source.png";
+const SPAWN_HOME_CHROMA_TOLERANCE = 20;
+const SPAWN_POINT = {
+  // Front-of-house anchor for the centered house image.
+  x: interfaceWidth / 2,
+  y: interfaceHeight / 2 - 140,
+};
 
 // ---------------------------------------------------------------------------
 // PRELOAD / SETUP / DRAW
@@ -146,6 +157,7 @@ function setup() {
   }
   if (canvasEl) canvasEl.style.backgroundColor = "transparent";
   clear();
+  makeSpawnBaseBackgroundTransparent();
 
   if (!window.isSecureContext) {
     setStatus("Camera needs localhost or HTTPS. Open via a local server.");
@@ -313,11 +325,12 @@ function buildActiveToys() {
 // ---------------------------------------------------------------------------
 
 function ensureHandSlots(n) {
+  const { x: spawnX, y: spawnY } = SPAWN_POINT;
   if (typeof createSprite === "function") {
     while (handSlots.length < n) {
       const petSprite = createSprite(
-        random(80, width - 80),
-        random(80, height - 80),
+        spawnX,
+        spawnY,
         44,
         44,
       );
@@ -351,7 +364,7 @@ function ensureHandSlots(n) {
     while (handSlots.length < n) {
       handSlots.push({
         petSprite: {
-          position: { x: random(80, width - 80), y: random(80, height - 80) },
+          position: { x: spawnX, y: spawnY },
           velocity: { x: 0, y: 0 },
         },
         wasPetAtToy: false,
@@ -366,6 +379,51 @@ function ensureHandSlots(n) {
     while (handSlots.length > n) handSlots.pop();
   }
   if (dog3d) dog3d.ensureSlotInstances(handSlots);
+}
+
+function makeSpawnBaseBackgroundTransparent() {
+  const spawnImg = document.getElementById("spawn-base-image");
+  if (!spawnImg) return;
+
+  const source = new Image();
+  source.crossOrigin = "anonymous";
+  source.onload = () => {
+    const w = source.width;
+    const h = source.height;
+    if (!w || !h) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(source, 0, 0);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+
+    const baseR = data[0];
+    const baseG = data[1];
+    const baseB = data[2];
+    const t = SPAWN_HOME_CHROMA_TOLERANCE;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (
+        Math.abs(r - baseR) <= t &&
+        Math.abs(g - baseG) <= t &&
+        Math.abs(b - baseB) <= t
+      ) {
+        data[i + 3] = 0;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    spawnImg.src = canvas.toDataURL("image/png");
+  };
+  source.src = SPAWN_HOME_ASSET_PATH;
 }
 
 function syncHandsAndToys() {
@@ -438,8 +496,14 @@ function updatePetBehavior() {
         slot.toy.x,
         slot.toy.y,
       );
-      const petIsNearLatchedToy = petDistanceToLatchedToy <= PET_NEAR_TOY_LOCK_RADIUS;
-      const handMoveSinceLatch = dist(rawToy.x, rawToy.y, slot.toy.x, slot.toy.y);
+      const petIsNearLatchedToy =
+        petDistanceToLatchedToy <= PET_NEAR_TOY_LOCK_RADIUS;
+      const handMoveSinceLatch = dist(
+        rawToy.x,
+        rawToy.y,
+        slot.toy.x,
+        slot.toy.y,
+      );
 
       if (!petIsNearLatchedToy) {
         slot.toy = { ...rawToy };
@@ -448,7 +512,10 @@ function updatePetBehavior() {
         if (!slot.toyMoveCandidateStartMs) {
           slot.toyMoveCandidateStartMs = millis();
         }
-        if (millis() - slot.toyMoveCandidateStartMs >= HAND_MOVE_RETARGET_DELAY_MS) {
+        if (
+          millis() - slot.toyMoveCandidateStartMs >=
+          HAND_MOVE_RETARGET_DELAY_MS
+        ) {
           slot.toy = { ...rawToy };
           slot.toyMoveCandidateStartMs = 0;
         }
@@ -641,6 +708,26 @@ function drawOverlayText() {
         ? (handSlots[0].petSheet?.name ?? "pet")
         : `${n} pets`;
   text(`Pet: ${label}`, 12, 10);
+
+  push();
+  textAlign(CENTER, CENTER);
+  textSize(TEXT_CENTER_INSTRUCTION);
+  textStyle(BOLD);
+  stroke(0, 0, 0, 180);
+  strokeWeight(8);
+  fill(190, 220, 255, 245);
+  text(CENTER_INSTRUCTION, width / 2, height / 2 - 360);
+  pop();
+
+  push();
+  textAlign(CENTER, CENTER);
+  textSize(TEXT_SHELTER_LABEL);
+  textStyle(BOLD);
+  stroke(0, 0, 0, 185);
+  strokeWeight(9);
+  fill(231, 88, 88, 250);
+  text(SHELTER_LABEL, width / 2, height / 2 + 290 - height * 0.1);
+  pop();
 }
 
 /**
