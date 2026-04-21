@@ -302,6 +302,10 @@ function keyPressed() {
     setInterfaceScale(interfaceScale - scaleStep);
     return false;
   }
+  if (key === "m" || key === "M") {
+    toggleSound();
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
