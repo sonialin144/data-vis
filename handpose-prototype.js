@@ -144,7 +144,7 @@ const SOUND_PATHS = {
 };
 const BARK_KEYS = ["bark", "bark2", "bark3"];
 
-let audioMuted = true; // starts muted; first button click unmutes and unlocks
+let audioMuted = false; // starts unmuted; press M to toggle
 
 function toggleSound() {
   audioMuted = !audioMuted;
