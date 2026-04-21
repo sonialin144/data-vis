@@ -3,29 +3,14 @@ let poseModel;
 
 // ---------------------------------------------------------------------------
 // BODY POSE CONFIG
-// We use ml5.bodyPose with MoveNet MultiPose, which detects full skeletons
-// from across a room. We extract LEFT_WRIST and RIGHT_WRIST as toy anchors.
-// This replaces the old HandPose approach which required hands to be close.
 // ---------------------------------------------------------------------------
 
-/**
- * MoveNet keypoint indices we care about.
- * Full list: https://docs.ml5js.org/#/reference/body-pose
- */
 const KP_LEFT_WRIST = 9;
 const KP_RIGHT_WRIST = 10;
 const KP_LEFT_ELBOW = 7;
 const KP_RIGHT_ELBOW = 8;
 
-/**
- * Minimum confidence for a keypoint to be used as a toy anchor.
- * Lower = more detections at range but more jitter. 0.2 is a good start.
- */
 const MIN_WRIST_CONFIDENCE = 0.2;
-
-/**
- * Minimum overall person confidence to bother reading their wrists.
- */
 const MIN_PERSON_CONFIDENCE = 0.15;
 
 // ---------------------------------------------------------------------------
@@ -70,15 +55,13 @@ const PET_DISPLAY_NAMES = [
   "Luna",
 ];
 
-/**
- * Each active wrist becomes one toy slot entry.
- * Format: { x, y, d } in video-pixel space, plus which person/side it belongs to.
- * @type {Array<{ x: number; y: number; d: number }>}
- */
 let activeToys = [];
-
 let handSlots = [];
 let dog3d = null;
+
+// Sound state
+let lastPawStepMs = {};
+let prevHandSlotCount = 0;
 
 function pickPetVisual() {
   if (!dog3d) return random(PET_SHEETS);
@@ -90,7 +73,7 @@ function pickPetVisual() {
 }
 
 let modelReady = false;
-const MAX_PEOPLE = 6; // MoveNet MultiPose supports up to 6 people
+const MAX_PEOPLE = 6;
 const interfaceWidth = 3072;
 const interfaceHeight = 1280;
 const scaleStorageKey = "handposePrototypeInterfaceScale";
@@ -108,6 +91,9 @@ const TOY_REACH_DISTANCE = 8;
 const PET_NEAR_TOY_LOCK_RADIUS = 32;
 const HAND_MOVE_RETARGET_DISTANCE = 32;
 const HAND_MOVE_RETARGET_DELAY_MS = 150;
+const WRIST_LERP = 0.18; // smoothing factor: lower = smoother but laggier
+const WRIST_MATCH_MAX_DISTANCE = 420;
+const WRIST_DETECTION_GRACE_MS = 450;
 
 const TEXT_OVERLAY = 22;
 const TEXT_WAITING = 26;
@@ -121,10 +107,78 @@ const SHELTER_LABEL = "Animal Shelter";
 const SPAWN_HOME_ASSET_PATH = "./assets/spawn-home-source.png";
 const SPAWN_HOME_CHROMA_TOLERANCE = 20;
 const SPAWN_POINT = {
-  // Front-of-house anchor for the centered house image.
   x: interfaceWidth / 2,
   y: interfaceHeight / 2 - 140,
 };
+
+// ---------------------------------------------------------------------------
+// SOUND EFFECTS — real MP3 files
+// ---------------------------------------------------------------------------
+// Create a /sounds folder next to your sketch and place these files in it:
+//
+//   sounds/bark.mp3  — dog bark
+//     → pixabay.com/sound-effects/search/dog-bark
+//
+//   sounds/yip.mp3   — short puppy yip (plays when a new pet appears)
+//     → pixabay.com/sound-effects/search/puppy-bark
+//
+//   sounds/meow.mp3  — cat meow
+//     → pixabay.com/sound-effects/search/cat-meow
+//
+//   sounds/paw.mp3   — soft footstep / paw tap (plays while pet walks)
+//     → pixabay.com/sound-effects/search/footstep
+//
+// All Pixabay sounds are royalty-free, no attribution required.
+// Just click any result → green Download button → choose MP3.
+// ---------------------------------------------------------------------------
+
+// ── HTML Audio sound system ───────────────────────────────────────────────────
+
+const SOUND_PATHS = {
+  bark:   "./sounds/bark.mp3",
+  bark2:  "./sounds/bark-2.mp3",
+  bark3:  "./sounds/bark-3.mp3",
+  yip:    "./sounds/yip.mp3",
+  meow:   "./sounds/meow.mp3",
+  paw:    "./sounds/paw.mp3",
+};
+const BARK_KEYS = ["bark", "bark2", "bark3"];
+
+let audioMuted = true; // starts muted; first button click unmutes and unlocks
+
+function toggleSound() {
+  audioMuted = !audioMuted;
+  const btn = document.getElementById("sound-toggle");
+  if (btn) {
+    btn.textContent = audioMuted ? "🔇" : "🔊";
+    btn.title = audioMuted ? "Enable sound" : "Mute sound";
+  }
+  // Play immediately inside this gesture so the browser allows future audio
+    if (!audioMuted) {
+      const key = BARK_KEYS[Math.floor(Math.random() * BARK_KEYS.length)];
+      const a = new Audio(SOUND_PATHS[key]);
+      a.volume = 0.6;
+      a.play().catch(() => {});
+    }
+}
+
+function setupSoundToggle() { /* button uses inline onclick="toggleSound()" */ }
+
+function playSound(key, volume = 1.0) {
+  if (audioMuted) return;
+  const path = SOUND_PATHS[key];
+  if (!path) return;
+  const a = new Audio(path);
+  a.volume = Math.max(0, Math.min(1, volume));
+  a.play().catch(() => {});
+}
+
+function preloadSounds() { /* no-op: Audio elements are created on demand */ }
+
+function playDogYip(volume = 0.45)  { playSound("yip",  volume); }
+function playCatMeow(volume = 0.5)  { playSound("meow", volume); }
+function playPawStep(volume = 0.18) { playSound("paw",  volume); }
+
 
 // ---------------------------------------------------------------------------
 // PRELOAD / SETUP / DRAW
@@ -200,6 +254,8 @@ function setup() {
 
   setupBodyPose();
 
+  setupSoundToggle();
+
   if (typeof createSprite !== "function") {
     setStatus("Webcam active. p5.play failed to load, using fallback pets.");
   }
@@ -252,28 +308,23 @@ function keyPressed() {
 // BODY POSE SETUP
 // ---------------------------------------------------------------------------
 
-/**
- * Latest raw pose results from ml5, updated by the detectStart callback.
- * @type {any[]}
- */
 let rawPoses = [];
+let lastStableToys = [];
+let lastStableToysMs = 0;
 
 function setupBodyPose() {
   setStatus("Loading body pose model...");
 
-  // ml5.bodyPose with MoveNet multipose — detects up to 6 people at once,
-  // works at room scale, runs in real time on most hardware.
   poseModel = ml5.bodyPose(
     "MoveNet",
     {
-      modelType: "MULTIPOSE_LIGHTNING", // fast multi-person model
+      modelType: "MULTIPOSE_LIGHTNING",
       enableSmoothing: true,
       minPoseScore: MIN_PERSON_CONFIDENCE,
     },
     () => {
       modelReady = true;
       setStatus("Pose model loaded. Step into view and raise a hand!");
-      // detectStart streams results continuously via callback
       poseModel.detectStart(video.elt, (results) => {
         rawPoses = results || [];
       });
@@ -285,31 +336,22 @@ function setupBodyPose() {
 // WRIST → TOY EXTRACTION
 // ---------------------------------------------------------------------------
 
-/**
- * Converts a MoveNet keypoint (video-pixel coords) into a canvas-space toy.
- * The toy diameter is fixed since we no longer have hand-width data.
- */
 function wristToToy(kp) {
   if (!kp || kp.confidence < MIN_WRIST_CONFIDENCE) return null;
   const mapped = mapVideoToCanvas(kp.x, kp.y);
   return { x: mapped.x, y: mapped.y, d: 60 };
 }
 
-/**
- * Reads rawPoses and builds a flat list of toy positions — one per visible wrist.
- * Each person can contribute up to 2 toys (left + right wrist).
- */
 function buildActiveToys() {
   const toys = [];
   for (const pose of rawPoses) {
-    // pose.score may not exist in all ml5 versions; fall back to truthy check
     if (pose.score !== undefined && pose.score < MIN_PERSON_CONFIDENCE)
       continue;
 
     const kps = pose.keypoints;
     if (!kps) continue;
 
-    const leftWrist = kps[KP_LEFT_WRIST];
+    const leftWrist  = kps[KP_LEFT_WRIST];
     const rightWrist = kps[KP_RIGHT_WRIST];
 
     const lt = wristToToy(leftWrist);
@@ -320,6 +362,55 @@ function buildActiveToys() {
   return toys;
 }
 
+function matchCandidatesToSlots(candidates, slots) {
+  const n = slots.length;
+  const out = new Array(n).fill(null);
+  if (n === 0 || candidates.length === 0) return out;
+
+  const anchors = slots.map((s) => {
+    const t = s.rawToy || s.toy;
+    if (t) return { x: t.x, y: t.y };
+    return {
+      x: s.petSprite?.position?.x ?? SPAWN_POINT.x,
+      y: s.petSprite?.position?.y ?? SPAWN_POINT.y,
+    };
+  });
+
+  const pairs = [];
+  for (let si = 0; si < n; si++) {
+    for (let ci = 0; ci < candidates.length; ci++) {
+      const c = candidates[ci];
+      pairs.push({
+        si,
+        ci,
+        d: dist(anchors[si].x, anchors[si].y, c.x, c.y),
+      });
+    }
+  }
+  pairs.sort((a, b) => a.d - b.d);
+
+  const usedSlot = new Set();
+  const usedCand = new Set();
+  for (const { si, ci, d } of pairs) {
+    if (usedSlot.has(si) || usedCand.has(ci)) continue;
+    const hadPriorToy = !!(slots[si].rawToy || slots[si].toy);
+    if (hadPriorToy && d > WRIST_MATCH_MAX_DISTANCE) continue;
+    usedSlot.add(si);
+    usedCand.add(ci);
+    out[si] = candidates[ci];
+  }
+
+  const leftoverCand = [];
+  for (let ci = 0; ci < candidates.length; ci++) {
+    if (!usedCand.has(ci)) leftoverCand.push(candidates[ci]);
+  }
+  for (let si = 0; si < n && leftoverCand.length; si++) {
+    if (out[si]) continue;
+    out[si] = leftoverCand.shift();
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // HAND SLOT / TOY MANAGEMENT
 // ---------------------------------------------------------------------------
@@ -328,12 +419,7 @@ function ensureHandSlots(n) {
   const { x: spawnX, y: spawnY } = SPAWN_POINT;
   if (typeof createSprite === "function") {
     while (handSlots.length < n) {
-      const petSprite = createSprite(
-        spawnX,
-        spawnY,
-        44,
-        44,
-      );
+      const petSprite = createSprite(spawnX, spawnY, 44, 44);
       petSprite.maxSpeed = chaseSpeed;
       petSprite.friction = 0.05;
       const petSheet = pickPetVisual();
@@ -353,6 +439,7 @@ function ensureHandSlots(n) {
         petSheet,
         facingRight: true,
         petDisplayName: random(PET_DISPLAY_NAMES),
+        lastBarkMs: 0,
       });
     }
     while (handSlots.length > n) {
@@ -374,6 +461,7 @@ function ensureHandSlots(n) {
         petSheet: pickPetVisual(),
         facingRight: true,
         petDisplayName: random(PET_DISPLAY_NAMES),
+        lastBarkMs: 0,
       });
     }
     while (handSlots.length > n) handSlots.pop();
@@ -429,20 +517,42 @@ function makeSpawnBaseBackgroundTransparent() {
 function syncHandsAndToys() {
   if (!modelReady) {
     ensureHandSlots(0);
+    lastStableToys = [];
     return;
   }
 
-  activeToys = buildActiveToys();
+  let freshToys = buildActiveToys();
+  const now = millis();
+
+  if (freshToys.length > 0) {
+    lastStableToys = freshToys;
+    lastStableToysMs = now;
+  } else if (
+    lastStableToys.length > 0 &&
+    now - lastStableToysMs < WRIST_DETECTION_GRACE_MS
+  ) {
+    freshToys = lastStableToys;
+  }
+
+  activeToys = freshToys;
 
   if (activeToys.length === 0) {
     ensureHandSlots(0);
+    lastStableToys = [];
     setStatus("Step into view and raise a hand!");
     return;
   }
 
+  const prevCount = handSlots.length;
   ensureHandSlots(activeToys.length);
+
+  const matched =
+    prevCount === activeToys.length && prevCount > 0
+      ? matchCandidatesToSlots(activeToys, handSlots)
+      : activeToys.map((t) => t);
+
   for (let i = 0; i < activeToys.length; i++) {
-    handSlots[i].rawToy = activeToys[i];
+    handSlots[i].rawToy = matched[i] ?? activeToys[i];
   }
 
   const n = activeToys.length;
@@ -472,12 +582,27 @@ function drawToyIfPresent() {
 function updatePetBehavior() {
   if (handSlots.length === 0) return;
 
+  // Play a sound for each newly added hand slot
+  if (handSlots.length > prevHandSlotCount) {
+    for (let ni = prevHandSlotCount; ni < handSlots.length; ni++) {
+      const isCat = handSlots[ni].petSheet?.name?.startsWith("cat");
+      if (isCat) {
+        playCatMeow(0.5);
+      } else {
+        const dogSounds = ["yip", ...BARK_KEYS];
+        playSound(dogSounds[Math.floor(Math.random() * dogSounds.length)], 0.5);
+      }
+    }
+  }
+  prevHandSlotCount = handSlots.length;
+
   for (let si = 0; si < handSlots.length; si++) {
     const slot = handSlots[si];
     const petSprite = slot.petSprite;
     const rawToy = slot.rawToy;
 
     if (!rawToy) {
+      slot.smoothedToy = null;
       slot.toy = null;
       slot.toyMoveCandidateStartMs = 0;
       petSprite.velocity.x *= 0.9;
@@ -486,8 +611,17 @@ function updatePetBehavior() {
       continue;
     }
 
+    // Lerp the raw wrist position to remove per-frame jitter
+    if (!slot.smoothedToy) {
+      slot.smoothedToy = { x: rawToy.x, y: rawToy.y, d: rawToy.d };
+    } else {
+      slot.smoothedToy.x += (rawToy.x - slot.smoothedToy.x) * WRIST_LERP;
+      slot.smoothedToy.y += (rawToy.y - slot.smoothedToy.y) * WRIST_LERP;
+    }
+    const smoothed = slot.smoothedToy;
+
     if (!slot.toy) {
-      slot.toy = { ...rawToy };
+      slot.toy = { ...smoothed };
       slot.toyMoveCandidateStartMs = 0;
     } else {
       const petDistanceToLatchedToy = dist(
@@ -499,14 +633,14 @@ function updatePetBehavior() {
       const petIsNearLatchedToy =
         petDistanceToLatchedToy <= PET_NEAR_TOY_LOCK_RADIUS;
       const handMoveSinceLatch = dist(
-        rawToy.x,
-        rawToy.y,
+        smoothed.x,
+        smoothed.y,
         slot.toy.x,
         slot.toy.y,
       );
 
       if (!petIsNearLatchedToy) {
-        slot.toy = { ...rawToy };
+        slot.toy = { ...smoothed };
         slot.toyMoveCandidateStartMs = 0;
       } else if (handMoveSinceLatch >= HAND_MOVE_RETARGET_DISTANCE) {
         if (!slot.toyMoveCandidateStartMs) {
@@ -516,7 +650,7 @@ function updatePetBehavior() {
           millis() - slot.toyMoveCandidateStartMs >=
           HAND_MOVE_RETARGET_DELAY_MS
         ) {
-          slot.toy = { ...rawToy };
+          slot.toy = { ...smoothed };
           slot.toyMoveCandidateStartMs = 0;
         }
       } else {
@@ -525,20 +659,14 @@ function updatePetBehavior() {
     }
 
     const toy = slot.toy;
-
     const dir = createVector(
       toy.x - petSprite.position.x,
       toy.y - petSprite.position.y,
     );
     const distanceToToy = dir.mag();
     const atToy = distanceToToy <= TOY_REACH_DISTANCE;
+    const isCat = slot.petSheet?.name?.startsWith("cat");
 
-    if (atToy && !slot.wasPetAtToy) {
-      console.log("[pet] Reached toy", {
-        handSlot: si,
-        distancePx: Math.round(distanceToToy * 10) / 10,
-      });
-    }
     slot.wasPetAtToy = atToy;
 
     if (distanceToToy > TOY_REACH_DISTANCE) {
@@ -546,8 +674,19 @@ function updatePetBehavior() {
       petSprite.velocity.x = dir.x;
       petSprite.velocity.y = dir.y;
       if (abs(dir.x) > 0.05) slot.facingRight = dir.x > 0;
+
+      // Paw-step sounds while running, rhythm scales with speed
+      const speed = Math.hypot(petSprite.velocity.x, petSprite.velocity.y);
+      if (speed > walkFrameThreshold) {
+        if (!lastPawStepMs[si]) lastPawStepMs[si] = 0;
+        const stepInterval = map(speed, 1, chaseSpeed, 380, 160);
+        if (millis() - lastPawStepMs[si] > stepInterval) {
+          lastPawStepMs[si] = millis();
+          playPawStep();
+        }
+      }
     } else {
-      // Hard stop at target to avoid micro-jitter from residual velocity.
+      // Hard stop at target — avoids micro-jitter from residual velocity
       petSprite.velocity.x = 0;
       petSprite.velocity.y = 0;
     }
@@ -654,7 +793,8 @@ function drawWinkySpeechBubbleForPet(slot) {
   const tw = textWidth(bubbleText);
   const bubbleW = tw + padX * 2;
   const bubbleH = max(52, textAscent() + textDescent() + padY * 2);
-  const lift = 118;
+  const is3d = slot.petSheet?.kind === "3d";
+  const lift = is3d ? 220 : 118;
   const bubbleCx = constrain(px, bubbleW / 2 + 10, width - bubbleW / 2 - 10);
   const bubbleCy = py - lift;
   const bubbleBottom = bubbleCy + bubbleH / 2;
@@ -730,10 +870,6 @@ function drawOverlayText() {
   pop();
 }
 
-/**
- * Debug overlay: draws wrist keypoints and person bounding boxes.
- * Set DEBUG_POSE = true at the top to enable.
- */
 function drawPoseDebug() {
   if (!modelReady || !rawPoses || rawPoses.length === 0) {
     fill(255, 120, 120);
@@ -752,7 +888,6 @@ function drawPoseDebug() {
       fill(80, 255, 170);
       circle(m.x, m.y, 10);
     }
-    // Highlight wrists specifically
     for (const idx of [KP_LEFT_WRIST, KP_RIGHT_WRIST]) {
       const kp = kps[idx];
       if (!kp || kp.confidence < MIN_WRIST_CONFIDENCE) continue;
@@ -815,7 +950,7 @@ function applyInterfaceScale() {
 }
 
 // ---------------------------------------------------------------------------
-// 3-D DOG LOADER (unchanged)
+// 3-D DOG LOADER
 // ---------------------------------------------------------------------------
 
 async function loadDogViewer() {
