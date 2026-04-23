@@ -4,14 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Handpose Pet Prototype</title>
-    <!-- Three.js examples import the bare specifier "three"; without this map, GLTFLoader fails to load and dog3d stays disabled. -->
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
-        }
-      }
-    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@700;900&display=swap" rel="stylesheet">
+    <!-- importmap for Three.js removed (3D dog disabled) -->
+    <!-- <script type="importmap">
+      { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    </script> -->
     <style>
       :root {
         color-scheme: light dark;
@@ -36,39 +34,19 @@
         z-index: 2;
         background-color: transparent;
       }
+      /* #dog-webgl-layer — disabled (3D dog removed)
       #dog-webgl-layer {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 4;
-        pointer-events: none;
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        z-index: 4; pointer-events: none;
       }
-      #dog-webgl-layer canvas {
-        display: block;
-        width: 100% !important;
-        height: 100% !important;
-      }
+      #dog-webgl-layer canvas { display: block; width: 100% !important; height: 100% !important; }
+      */
       #camera-layer {
         position: absolute;
         inset: 0;
         z-index: 1;
         background: #000;
-      }
-      #spawn-base {
-        position: absolute;
-        left: 50%;
-        top: 42%;
-        transform: translate(-50%, -50%);
-        z-index: 2;
-        pointer-events: none;
-        opacity: 0.98;
-      }
-      #spawn-base img {
-        display: block;
-        width: 1080px;
-        height: auto;
-        user-select: none;
       }
       #interface-root {
         position: fixed;
@@ -110,6 +88,178 @@
       #sound-toggle {
         display: none;
       }
+
+      /* ── Pet card row ──────────────────────────────────── */
+      #pet-card-row {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 32px;
+        padding: 0 60px;
+        z-index: 5;
+        pointer-events: none;
+        overflow: visible;
+      }
+
+      /* Wrapper is the flex item; card + photo live inside it */
+      .pet-card-wrapper {
+        position: relative;
+        flex-shrink: 0;
+        width: 180px;
+        height: 180px;
+        overflow: visible;
+      }
+
+      .pet-card {
+        width: 180px;
+        height: 180px;
+        background: #EDFFCE;
+        border: 3px solid #708146;
+        border-radius: 32px;
+        overflow: visible;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        /* z-index: 2 — renders on top of the photo corner (z-index: 1) */
+        z-index: 2;
+        /* Hidden below screen initially; slides up on .revealed */
+        transform: translateY(calc(100% + 60px));
+        transition: transform 0.55s cubic-bezier(0.34, 1.4, 0.64, 1);
+        /* Pre-promote to GPU compositor layer so first animation has no stall */
+        will-change: transform;
+      }
+
+      .pet-card.revealed {
+        transform: translateY(0);
+      }
+
+      .pet-card-inner {
+        width: 144px;
+        height: 144px;
+        border-radius: 16px;
+        border: 3px solid #708146;
+        background: #312D25;
+        overflow: visible;
+        position: relative;
+      }
+
+      /* ── Pet photo (peeks above inner frame) ─────────── */
+      .pet-card-inner .pet-photo {
+        position: absolute;
+        top: -54px;
+        left: 0;
+        width: 100%;
+        height: calc(100% + 54px);
+        object-fit: cover;
+        object-position: center top;
+        clip-path: inset(-54px 0 0 0 round 0 0 16px 16px);
+        transition: opacity 0.3s ease 0.45s;
+        will-change: opacity;
+      }
+
+      /* When QR reveals, fade the photo out */
+      .pet-card.revealed .pet-photo {
+        opacity: 0;
+      }
+
+      /* ── QR code (fills inner frame, animates in) ─────── */
+      .pet-card-inner .pet-qr {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #fff;
+        border-radius: 13px;
+        /* Clip to the inner frame's rounded rect */
+        clip-path: inset(0 0 0 0 round 13px);
+        z-index: 2;
+        /* Start hidden, scale in after card slides up */
+        opacity: 0;
+        transform: scale(0.82) rotate(-4deg);
+        transition:
+          opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+          transform 0.5s cubic-bezier(0.34, 1.4, 0.64, 1);
+        transition-delay: 0.5s;
+        will-change: transform, opacity;
+      }
+
+      .pet-card.revealed .pet-qr {
+        opacity: 1;
+        transform: scale(1) rotate(0deg);
+      }
+
+      /* ── Top-center pet photo (behind outer card frame) ─
+         Sits as a sibling of .pet-card inside .pet-card-wrapper.
+         z-index: 1 < .pet-card z-index: 2, so the card frame
+         renders on top of this image — truly behind the frame. */
+      .pet-photo-corner {
+        position: absolute;
+        top: -115px;           /* extends above the card's top edge */
+        left: 50%;
+        margin-left: -65px;
+        width: 130px;
+        height: 130px;
+        border-radius: 12px;
+        object-fit: cover;
+        object-position: center 8%;
+        z-index: 1;            /* below the card (z-index: 2) */
+        opacity: 0;
+        transform: scale(0.2);
+        transform-origin: 50% 100%;
+        transition:
+          opacity 0.3s ease,
+          transform 0.55s cubic-bezier(0.34, 1.55, 0.64, 1);
+        transition-delay: 0.6s;
+        will-change: transform, opacity;
+      }
+
+      /* :has() triggers animation when the sibling card is revealed */
+      .pet-card-wrapper:has(.pet-card.revealed) .pet-photo-corner {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      /* ── "FIND ME HERE!" bubble next to pet photo ─────── */
+      .find-me-bubble {
+        position: absolute;
+        /* left/top set dynamically by JS each reveal */
+        will-change: transform, opacity;
+        width: 168px;
+        height: 54px;
+        background: #F8FF9B;
+        border: 2.5px solid #000000;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: 'Geist', Arial, sans-serif;
+        font-size: 15px;
+        font-weight: 900;
+        color: #000000;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        z-index: 3;
+        opacity: 0;
+        transform: scale(0.4);
+        transform-origin: left center;
+        transition:
+          opacity 0.3s ease,
+          transform 0.45s cubic-bezier(0.34, 1.55, 0.64, 1);
+        transition-delay: 0.85s;
+        pointer-events: none;
+      }
+
+      .pet-card-wrapper:has(.pet-card.revealed) .find-me-bubble {
+        opacity: 1;
+        transform: scale(1);
+      }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/p5.play@1.5.0/lib/p5.play.min.js"></script>
@@ -125,16 +275,20 @@
     </div>
     <div id="interface-root">
       <div id="camera-layer"></div>
-      <div id="spawn-base" aria-hidden="true">
-        <img
-          id="spawn-base-image"
-          src="./assets/spawn-home-source.png"
-          alt=""
-          draggable="false"
-        />
-      </div>
       <div id="canvas-holder">
-        <div id="dog-webgl-layer" aria-hidden="true"></div>
+        <!-- <div id="dog-webgl-layer" aria-hidden="true"></div> -->
+      </div>
+      <div id="pet-card-row" aria-hidden="true">
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-0"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/ambree/ambree.png" alt="Ambree"/><img class="pet-qr" src="./assets/real-pet-images/ambree/qr-code-ambree.svg" alt="Adopt Ambree"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/ambree/ambree.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-1"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/bunny/bunny.png" alt="Bunny"/><img class="pet-qr" src="./assets/real-pet-images/bunny/qr-code-bunny.svg" alt="Adopt Bunny"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/bunny/bunny.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-2"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/dexter/dexter.png" alt="Dexter"/><img class="pet-qr" src="./assets/real-pet-images/dexter/qr-code-dexter.svg" alt="Adopt Dexter"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/dexter/dexter.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-3"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/drako/drako.png" alt="Drako"/><img class="pet-qr" src="./assets/real-pet-images/drako/qr-code-drako.svg" alt="Adopt Drako"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/drako/drako.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-4"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/elmer/elmer.png" alt="Elmer"/><img class="pet-qr" src="./assets/real-pet-images/elmer/qr-code-elmer.svg" alt="Adopt Elmer"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/elmer/elmer.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-5"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/frazier/frazier.png" alt="Frazier"/><img class="pet-qr" src="./assets/real-pet-images/frazier/qr-code-frazier.svg" alt="Adopt Frazier"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/frazier/frazier.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-6"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/frida/frida.png" alt="Frida"/><img class="pet-qr" src="./assets/real-pet-images/frida/qr-code-frida.svg" alt="Adopt Frida"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/frida/frida.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-7"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/hubert/hubert.png" alt="Hubert"/><img class="pet-qr" src="./assets/real-pet-images/hubert/qr-code-hubert.svg" alt="Adopt Hubert"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/hubert/hubert.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-8"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/jesse/jesse.png" alt="Jesse"/><img class="pet-qr" src="./assets/real-pet-images/jesse/qr-code-jesse.svg" alt="Adopt Jesse"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/jesse/jesse.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
+        <div class="pet-card-wrapper"><div class="pet-card" id="pet-card-9"><div class="pet-card-inner"><img class="pet-photo" src="./assets/real-pet-images/journey/journey.png" alt="Journey"/><img class="pet-qr" src="./assets/real-pet-images/journey/qr-code-journey.svg" alt="Adopt Journey"/></div></div><img class="pet-photo-corner" src="./assets/real-pet-images/journey/journey.png" alt=""/><div class="find-me-bubble">FIND ME HERE!</div></div>
       </div>
     </div>
     <script src="./handpose-prototype.js"></script>

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pet Card</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        min-height: 100vh;
+        background: #e8e4dd;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 48px;
+        flex-wrap: wrap;
+        padding: 120px 60px;
+      }
+
+      /* ── Outer rounded square ─────────────────────────── */
+      .outer {
+        width: 260px;
+        height: 260px;
+        background: #EDFFCE;
+        border: 3px solid #708146;
+        border-radius: 42px;
+
+        /* Must be visible so image can escape upward */
+        overflow: visible;
+
+        /* Centers the inner square */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      }
+
+      /* ── Inner rounded square with border ────────────── */
+      .inner {
+        width: 210px;
+        height: 210px;
+        border-radius: 20px;
+        background: #312D25;
+        border: 3px solid #708146;
+
+        /* overflow: visible — the clip-path on the image
+           handles masking so we don't need this to clip */
+        overflow: visible;
+        position: relative;
+      }
+
+      /* ── Pet image ───────────────────────────────────── */
+      /*
+       * The image is positioned to pop 72px above the inner square's top edge.
+       * clip-path: inset(-72px 0 0 0 round ...) means:
+       *   - top:    -72px  →  extend the visible zone 72px ABOVE the element,
+       *                       so the peek is NOT clipped
+       *   - right/left: 0  →  clip at the element's own edges (= inner square width)
+       *   - bottom: 0      →  clip at the element's own bottom edge
+       *   - round 0 0 20px 20px  →  rounded only on the bottom corners
+       */
+      .inner img {
+        position: absolute;
+        top: -72px;
+        left: 0;
+        width: 100%;
+        height: calc(100% + 72px);
+        object-fit: cover;
+        object-position: center top;
+        clip-path: inset(-72px 0 0 0 round 0 0 20px 20px);
+      }
+    </style>
+  </head>
+  <body>
+
+    <div class="outer">
+      <div class="inner">
+        <img src="./assets/real-pet-images/ambree.png" alt="Ambree" />
+      </div>
+    </div>
+
+  </body>
+</html>
