@@ -132,6 +132,15 @@ function activateNextDormantPet() {
   return pet ?? null;
 }
 
+// Activates the first unactivated dormant pet whose species matches isCat.
+// Falls back to any unactivated pet if no species match is available.
+function activateNextDormantPetOfType(isCat) {
+  let pet = dormantPets.find(p => !p.activated && (PET_IS_CAT[p.cardIndex] ?? false) === isCat);
+  if (!pet) pet = dormantPets.find(p => !p.activated); // fallback: any species
+  if (pet) pet.activated = true;
+  return pet ?? null;
+}
+
 // Reused every frame — avoids a per-frame object allocation inside drawDormantPets.
 const _dormantFakeSprite = { velocity: { x: 0, y: 0 } };
 
@@ -410,6 +419,7 @@ function playPawStep(volume = 0.18) { playSound("paw",  volume); }
 // ---------------------------------------------------------------------------
 
 let dogTreatImage;
+let catTreatImage;
 
 function preload() {
   const onImgError = (err) => console.warn("loadImage failed:", err);
@@ -418,6 +428,7 @@ function preload() {
     if (!sheet.walkImage) sheet.walkImage = loadImage(sheet.walkPath, null, onImgError);
   }
   dogTreatImage = loadImage("./assets/dog-treat.png", null, onImgError);
+  catTreatImage = loadImage("./assets/cat-treat.png", null, onImgError);
 
   // Warm the browser image cache + trigger SVG rasterization at the
   // display size so setting .src at reveal time causes no stall.
@@ -675,7 +686,8 @@ function matchCandidatesToSlots(candidates, slots) {
 function ensureHandSlots(n) {
   if (typeof createSprite === "function") {
     while (handSlots.length < n) {
-      const dormant = activateNextDormantPet();
+      const isCatTreat = Math.random() < 0.5;
+      const dormant = activateNextDormantPetOfType(isCatTreat);
       const startX = dormant ? dormant.x : SPAWN_POINT.x;
       const startY = dormant ? dormant.y : SPAWN_POINT.y;
       const petSheet = dormant ? dormant.petSheet : pickPetVisual();
@@ -700,6 +712,7 @@ function ensureHandSlots(n) {
         cardRevealed: false,
         dormantRef: dormant,
         locked: false,
+        treatType: isCatTreat ? "cat" : "dog",
         _bubbleW: null, _bubbleH: null,                // cached speech-bubble dims
       });
     }
@@ -722,7 +735,8 @@ function ensureHandSlots(n) {
     }
   } else {
     while (handSlots.length < n) {
-      const dormant = activateNextDormantPet();
+      const isCatTreat = Math.random() < 0.5;
+      const dormant = activateNextDormantPetOfType(isCatTreat);
       const startX = dormant ? dormant.x : SPAWN_POINT.x;
       const startY = dormant ? dormant.y : SPAWN_POINT.y;
       handSlots.push({
@@ -740,6 +754,7 @@ function ensureHandSlots(n) {
         cardRevealed: false,
         dormantRef: dormant,
         locked: false,
+        treatType: isCatTreat ? "cat" : "dog",
         _bubbleW: null, _bubbleH: null,
       });
     }
@@ -822,8 +837,10 @@ function drawToyIfPresent() {
     if (!toy) continue;
     push();
     imageMode(CENTER);
-    if (dogTreatImage) {
-      image(dogTreatImage, toy.x, toy.y, toy.d * 2.2, toy.d * 2.2);
+    const treatImg = slot.treatType === "cat" ? catTreatImage : dogTreatImage;
+    const treatScale = slot.treatType === "cat" ? 3.8 : 2.2;
+    if (treatImg) {
+      image(treatImg, toy.x, toy.y, toy.d * treatScale, toy.d * treatScale);
     } else {
       noStroke();
       fill(236, 82, 82);
